@@ -1030,10 +1030,14 @@ function uuidv4() {
 const sessionId = uuidv4();
 const updateInterval = 100;
 let updateStart;
+let updateFailures = 0;
+let updateController;
 
 function updateOnce() {
   updateStart = performance.now();
-  return fetch(new URL(`/updates/${sessionId}`, location))
+  updateController = new AbortController();
+  const timeout = setTimeout(() => updateController.abort(), 30000);
+  return fetch(new URL(`/updates/${sessionId}`, location), { cache: 'no-store', signal: updateController.signal })
   .then(resp => { if (!resp.ok) throw new Error(`HTTP ${resp.status}`); return resp.json(); })
   .then(updateData => {
     Object.entries(updateData).forEach(([tag, data]) => {
@@ -1058,17 +1062,26 @@ function updateOnce() {
         }
       }
     });
-  });
+  }).finally(() => { clearTimeout(timeout); updateController = undefined; });
 }
 
 function updateLoop() {
   if (document.hidden) { setTimeout(updateLoop, 1000); return; }
   updateOnce()
   .then(_ => {
+    updateFailures = 0;
     const timeToNextUpdate = (updateStart + updateInterval) - performance.now();
     setTimeout(updateLoop, timeToNextUpdate);
-  }).catch(() => setTimeout(updateLoop, 2000));
+  }).catch(() => {
+    updateFailures++;
+    const backoff = Math.min(10000, 500 * Math.pow(2, updateFailures));
+    setTimeout(updateLoop, backoff + Math.random() * 250);
+  });
 }
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && updateController) updateController.abort();
+});
 
 junctionsReady.then(_ => {
   updateLoop();

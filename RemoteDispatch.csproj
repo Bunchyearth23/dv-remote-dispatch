@@ -6,7 +6,7 @@
     <RootNamespace>DvMod.RemoteDispatch</RootNamespace>
     <AssemblyName>RemoteDispatchLive</AssemblyName>
     <DefaultItemExcludes>$(DefaultItemExcludes);tests/**;artifacts/**</DefaultItemExcludes>
-    <InformationalVersion>1.8.0</InformationalVersion>
+    <InformationalVersion>1.8.1</InformationalVersion>
     <GameDir Condition="'$(GameDir)' == ''">D:\Steam\steamapps\common\Derail Valley</GameDir>
     <AssemblySearchPaths>$(AssemblySearchPaths);$(GameDir)\DerailValley_Data\Managed;$(GameDir)\DerailValley_Data\Managed\UnityModManager</AssemblySearchPaths>
   </PropertyGroup>

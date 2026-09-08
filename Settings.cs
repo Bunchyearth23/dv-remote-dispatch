@@ -10,6 +10,7 @@ namespace DvMod.RemoteDispatch
     {
         public int serverPort = 7245;
         public string serverPassword = "";
+        public bool allowRemoteConnections = false;
         public Permissions permissions = new Permissions();
         public bool showUndiscoveredLocomotives = false;
         public bool enableLogging = false;
@@ -31,6 +32,11 @@ namespace DvMod.RemoteDispatch
             uncommittedPort = GUILayout.TextField(uncommittedPort, maxLength: 5);
             uncommittedPort = new string(uncommittedPort.Where(c => char.IsDigit(c)).ToArray());
             bool isValidPort = int.TryParse(uncommittedPort, out var parsed) && parsed >= 1024 && parsed <= 65535;
+            if (isValidPort && parsed != serverPort)
+            {
+                serverPort = parsed;
+                message = "Port saved; restart the mod to apply it.";
+            }
 
             GUILayout.BeginHorizontal();
             GUILayout.Label(message);
@@ -40,6 +46,9 @@ namespace DvMod.RemoteDispatch
             GUILayout.Label("Password (blank for none)");
             serverPassword = GUILayout.TextField(serverPassword);
             GUILayout.EndHorizontal();
+
+            allowRemoteConnections = GUILayout.Toggle(allowRemoteConnections,
+                "Allow remote browser connections (requires a password and restart)");
 
             permissions.Draw();
 
@@ -65,6 +74,9 @@ namespace DvMod.RemoteDispatch
 
     public class Permissions
     {
+        private const int MaximumKnownUsers = 64;
+        private readonly object permissionsLock = new object();
+        private bool attached;
         public class PlayerPermissions
         {
             public string name;
@@ -87,43 +99,55 @@ namespace DvMod.RemoteDispatch
 
         public Permissions()
         {
+        }
+
+        public void Attach()
+        {
+            if (attached) return;
             Sessions.OnSessionStarted += OnSessionStarted;
+            attached = true;
         }
 
         public bool HasJunctionPermission(string username)
         {
-            return permissions.Find(p => p.name == username)?.canToggleJunctions ?? false;
+            lock (permissionsLock) return permissions.Find(p => p.name == username)?.canToggleJunctions ?? false;
         }
 
         public bool HasLocoControlPermission(string username)
         {
-            return permissions.Find(p => p.name == username)?.canControlLocomotives ?? false;
+            lock (permissionsLock) return permissions.Find(p => p.name == username)?.canControlLocomotives ?? false;
         }
 
         public bool HasCompanyPermission(string username)
         {
-            return permissions.Find(p => p.name == username)?.canManageCompany ?? false;
+            lock (permissionsLock) return permissions.Find(p => p.name == username)?.canManageCompany ?? false;
         }
 
         private void OnSessionStarted(string username)
         {
-            if (!permissions.Any(p => p.name == username))
+            lock (permissionsLock)
             {
-                permissions.Add(new PlayerPermissions(username));
-                permissions.Sort((a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.name, b.name));
+                if (!permissions.Any(p => p.name == username) && permissions.Count < MaximumKnownUsers)
+                {
+                    permissions.Add(new PlayerPermissions(username));
+                    permissions.Sort((a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.name, b.name));
+                }
             }
         }
 
         public void Draw()
         {
-            GUILayout.Label("Dispatcher permissions:");
-            GUILayout.BeginHorizontal("box", GUILayout.ExpandWidth(false));
-            DrawNamesColumn();
-            DrawConnectedColumn();
-            DrawJunctionsColumn();
-            DrawLocoControlColumn();
-            DrawCompanyColumn();
-            GUILayout.EndHorizontal();
+            lock (permissionsLock)
+            {
+                GUILayout.Label("Dispatcher permissions:");
+                GUILayout.BeginHorizontal("box", GUILayout.ExpandWidth(false));
+                DrawNamesColumn();
+                DrawConnectedColumn();
+                DrawJunctionsColumn();
+                DrawLocoControlColumn();
+                DrawCompanyColumn();
+                GUILayout.EndHorizontal();
+            }
         }
 
         private void DrawColumn(string label, Action<PlayerPermissions> action)

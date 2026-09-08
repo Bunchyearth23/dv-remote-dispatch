@@ -27,6 +27,16 @@ Pour diagnostiquer les à-coups, survoler le panneau de statut : il indique le t
 
 Ouvrir [la carte locale](http://localhost:7245) après chargement d’une partie. Les permissions existantes continuent de s’appliquer ; l’utilisateur configuré localement est `bunchy`. Après changement de carte ou de configuration DoubleTrack, recharger aussi la page pour récupérer toute la géométrie des voies.
 
+## Transport Web — 1.8.1
+
+Le serveur écoute désormais `localhost` par défaut. Pour un browser sur une autre machine, définir d’abord un password non vide, activer **Allow remote browser connections**, sauvegarder puis redémarrer le mod. Le mode remote utilise HTTP Basic sur HTTP : il convient uniquement à un LAN de confiance. Ne pas exposer le port à Internet ; pour traverser un réseau non fiable, placer le service derrière un tunnel chiffré ou un reverse proxy TLS.
+
+Le frontend utilise du long polling HTTP sur `/updates/{sessionId}`, et non WebSocket. Chaque poll expire après 25 secondes côté serveur et 30 secondes côté browser. Les reconnexions utilisent un backoff borné avec jitter, les requests sont annulées lorsque l’onglet est masqué, le serveur limite la concurrence et annule sessions et callbacks main thread lors d’un unload. Un `sessionId` est borné et appartient à une seule identité Basic.
+
+Toutes les commandes mutantes (aiguillages, locomotives, routes, AITraffic et intentions BDVM) vérifient l’identité, la permission dédiée et le same-origin. Des headers CSP, `nosniff` et `no-referrer` sont ajoutés. Le password est comparé sans arrêt anticipé. Les réglages des versions précédentes sont migrés au lieu d’être ignorés ; l’exposition remote reste désactivée par défaut.
+
+Remote Dispatch ne devient pas une autorité économique : `/bdvm` transmet une identité et un intent JSON borné au bridge public de BDVM, sur le main thread. BDVM reste seul responsable de valider l’actor, l’ownership, les versions, les transitions et les écritures économiques. Voir la [campagne browser host/client](docs/browser-host-client-checklist.md).
+
 ## AITraffic (1.3.0)
  
 Les joueurs locaux et multiplayer sont signalés par une flèche de taille fixe, un halo et une étiquette permanente. La flèche indique leur orientation, pas nécessairement le sens de déplacement du train. Le bouton de recentrage inclut les joueurs multiplayer reçus. Les aiguillages affichent une flèche alignée sur la branche sélectionnée et un trait turquoise épais ; les autres branches sont grises en pointillé. Cela indique la connexion physique, pas une autorisation de franchir un signal.
@@ -81,6 +91,9 @@ node --test tests/route-planner.test.cjs
 node --test tests/multiplayer.test.cjs
 dotnet run --project tests/backend/BackendChecks.csproj -c Release
 dotnet run --project tests/routes/RouteChecks.csproj -c Release
+dotnet run --project tests/jobs/JobChecks.csproj -c Release
+dotnet run --project tests/transport/TransportChecks.csproj -c Release
+dotnet run --project tests/sessions/SessionChecks.csproj -c Release
 ```
 
 Le build utilise les assemblies de l’installation du jeu. Installer `RemoteDispatchLive.dll` et `info.json` dans `Mods/RemoteDispatchLive`. Conserver `Settings.xml`. L’ancienne version doit rester désactivée pour éviter un conflit de port. Sur cette installation, elle est conservée dans `Mods-backup/RemoteDispatch-Original`. Les avertissements NU1701 viennent des packages UnityModManager et Harmony existants.

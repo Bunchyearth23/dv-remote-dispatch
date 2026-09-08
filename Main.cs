@@ -21,12 +21,13 @@ namespace DvMod.RemoteDispatch
             try
             {
                 var loaded = Settings.Load<Settings>(modEntry);
-                if (loaded.version == modEntry.Info.Version)
+                if (loaded != null)
                     settings = loaded;
             }
             catch
             {
             }
+            settings.permissions.Attach();
 
             mod.OnGUI = OnGUI;
             mod.OnSaveGUI = OnSaveGUI;
@@ -105,8 +106,8 @@ namespace DvMod.RemoteDispatch
 
         private static void Start()
         {
-            HttpServer.Create();
             Updater.Create();
+            HttpServer.Create();
             CarUpdater.Start();
         }
 
@@ -120,8 +121,9 @@ namespace DvMod.RemoteDispatch
             MultiplayerData.Reset();
             Junctions.Reset();
             CarUpdater.Stop();
-            Updater.Destroy();
             HttpServer.Destroy();
+            Sessions.Reset();
+            Updater.Destroy();
         }
 
         public static void DebugLog(TrainCar car, Func<string> message)

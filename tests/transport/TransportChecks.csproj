@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><Nullable>enable</Nullable><RollForward>Major</RollForward></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../TransportSecurity.cs" Link="TransportSecurity.cs" />
+    <Compile Include="../../AsyncSet.cs" Link="AsyncSet.cs" />
+  </ItemGroup>
+</Project>

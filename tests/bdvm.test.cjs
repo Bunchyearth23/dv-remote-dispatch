@@ -26,6 +26,6 @@ test('BDVM HTTP bridge stays permissioned, same-origin and main-thread dispatche
   const root = require('node:path').resolve(__dirname, '..');
   const server = fs.readFileSync(require('node:path').join(root, 'HttpServer.cs'), 'utf8');
   const bridge = fs.readFileSync(require('node:path').join(root, 'BDVMIntegration.cs'), 'utf8');
-  assert.match(server, /HasCompanyPermission/); assert.match(server, /originUri\.Authority != request\.Url\.Authority/); assert.match(server, /RunOnMainThread/); assert.match(server, /ContentLength64 > 4096/);
+  assert.match(server, /HasCompanyPermission/); assert.match(server, /CheckMutationOrigin/); assert.match(server, /TransportSecurity\.IsSameOrigin/); assert.match(server, /RunOnMainThread/); assert.match(server, /ContentLength64 > 4096/);
   assert.match(bridge, /FindMod\("BDVM"\)/); assert.match(bridge, /MaximumPayloadBytes = 4096/); assert.doesNotMatch(bridge, /BDVM\.Domain/);
 });

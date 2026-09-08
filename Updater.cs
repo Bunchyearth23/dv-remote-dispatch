@@ -34,9 +34,10 @@ namespace DvMod.RemoteDispatch
         {
             if (rootObject != null)
             {
-                GameObject.Destroy(rootObject);
+                GameObject.DestroyImmediate(rootObject);
                 rootObject = null;
             }
+            while (taskQueue.TryDequeue(out var pending)) pending.cancel();
         }
 
         private IEnumerator CheckPlayerTransformCoro()
@@ -74,49 +75,58 @@ namespace DvMod.RemoteDispatch
             while (true)
             {
                 frameBudget.Restart();
-                while (taskQueue.TryDequeue(out var action))
+                while (taskQueue.TryDequeue(out var work))
                 {
-                    action();
+                    work.execute();
                     if (frameBudget.Elapsed.TotalMilliseconds >= 2) break;
                 }
                 yield return null;
             }
         }
 
-        private static readonly ConcurrentQueue<Action> taskQueue = new ConcurrentQueue<Action>();
+        private sealed class QueuedWork
+        {
+            public readonly Action execute;
+            public readonly Action cancel;
+            public QueuedWork(Action execute, Action cancel) { this.execute = execute; this.cancel = cancel; }
+        }
+
+        private static readonly ConcurrentQueue<QueuedWork> taskQueue = new ConcurrentQueue<QueuedWork>();
 
         public static Task RunOnMainThread(Action action)
         {
             var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            taskQueue.Enqueue(() =>
+            if (rootObject == null) { tcs.SetCanceled(); return tcs.Task; }
+            taskQueue.Enqueue(new QueuedWork(() =>
             {
                 try
                 {
                     action();
-                    tcs.SetResult(true);
+                    tcs.TrySetResult(true);
                 }
                 catch (Exception e)
                 {
-                    tcs.SetException(e);
+                    tcs.TrySetException(e);
                 }
-            });
+            }, () => tcs.TrySetCanceled()));
             return tcs.Task;
         }
 
         public static Task<T> RunOnMainThread<T>(Func<T> func)
         {
             var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-            taskQueue.Enqueue(() =>
+            if (rootObject == null) { tcs.SetCanceled(); return tcs.Task; }
+            taskQueue.Enqueue(new QueuedWork(() =>
             {
                 try
                 {
-                    tcs.SetResult(func());
+                    tcs.TrySetResult(func());
                 }
                 catch (Exception e)
                 {
-                    tcs.SetException(e);
+                    tcs.TrySetException(e);
                 }
-            });
+            }, () => tcs.TrySetCanceled()));
             return tcs.Task;
         }
     }

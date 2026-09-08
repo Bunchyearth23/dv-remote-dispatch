@@ -34,10 +34,10 @@ namespace DvMod.RemoteDispatch
             }
         }
 
-        public async Task<(bool, T)> TryTakeAsync(TimeSpan timeSpan)
+        public async Task<(bool, T)> TryTakeAsync(TimeSpan timeSpan, CancellationToken cancellationToken = default)
         {
-            var success = await semaphore.WaitAsync(timeSpan).ConfigureAwait(true);
-            T value = default;
+            var success = await semaphore.WaitAsync(timeSpan, cancellationToken).ConfigureAwait(false);
+            T value = default!;
             if (success)
                 lock (queueLock) value = queue.Dequeue();
             return (success, value!);

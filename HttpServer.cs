@@ -7,6 +7,8 @@ using System.Net;
 using System.Text;
 using System.Threading.Tasks;
 using System;
+using System.Collections.Concurrent;
+using System.Threading;
 using UnityEngine;
 
 namespace DvMod.RemoteDispatch
@@ -15,15 +17,20 @@ namespace DvMod.RemoteDispatch
     {
         private static GameObject? rootObject;
         private readonly HttpListener listener = new HttpListener();
+        private readonly ConcurrentDictionary<Task, byte> requests = new ConcurrentDictionary<Task, byte>();
+        private readonly SemaphoreSlim requestSlots = new SemaphoreSlim(16, 16);
 
         public async void Start()
         {
             if (!listener.IsListening)
             {
-                listener.Prefixes.Add($"http://*:{Main.settings.serverPort}/");
+                var remote = Main.settings.allowRemoteConnections && !string.IsNullOrEmpty(Main.settings.serverPassword);
+                listener.Prefixes.Add($"http://{(remote ? "*" : "localhost")}:{Main.settings.serverPort}/");
                 listener.AuthenticationSchemes = AuthenticationSchemes.Anonymous | AuthenticationSchemes.Basic;
                 listener.Realm = "DV Remote Dispatch";
-                Main.DebugLog(() => $"Starting HTTP server on port {Main.settings.serverPort}");
+                if (Main.settings.allowRemoteConnections && !remote)
+                    Main.mod?.Logger.Warning("Remote connections were requested but no password is set; the server remains localhost-only.");
+                Main.DebugLog(() => $"Starting HTTP server on {(remote ? "all interfaces" : "localhost")}:{Main.settings.serverPort}");
                 listener.Start();
             }
 
@@ -34,7 +41,13 @@ namespace DvMod.RemoteDispatch
                     var context = await listener.GetContextAsync().ConfigureAwait(true);
                     if (CheckAuthentication(context))
                     {
-                        _ = Task.Run(async () =>
+                        if (!requestSlots.Wait(0))
+                        {
+                            context.Response.Headers["Retry-After"] = "1";
+                            RenderEmpty(context, 503);
+                            continue;
+                        }
+                        var task = Task.Run(async () =>
                         {
                             try
                             {
@@ -45,7 +58,10 @@ namespace DvMod.RemoteDispatch
                                 Main.DebugLog(() => $"Exception while handling HTTP request ({context.Request.Url}): {e}");
                                 try { RenderEmpty(context, 503); } catch { /* Client may have disconnected. */ }
                             }
+                            finally { requestSlots.Release(); }
                         });
+                        requests.TryAdd(task, 0);
+                        _ = task.ContinueWith(completed => requests.TryRemove(completed, out _), TaskScheduler.Default);
                     }
                     else
                     {
@@ -57,6 +73,10 @@ namespace DvMod.RemoteDispatch
                 {
                     // ignore when OnDestroy() is called to shutdown the server
                 }
+                catch (HttpListenerException) when (!listener.IsListening)
+                {
+                    // listener.Stop() interrupts GetContextAsync during unload
+                }
             }
         }
 
@@ -67,20 +87,35 @@ namespace DvMod.RemoteDispatch
                 Main.DebugLog(() => "Stopping HTTP server");
                 listener.Stop();
                 listener.Prefixes.Clear();
+                listener.Close();
             }
         }
 
         private static bool CheckAuthentication(HttpListenerContext context)
         {
             string serverPassword = Main.settings.serverPassword;
-            return context.User?.Identity is HttpListenerBasicIdentity identity && (string.IsNullOrEmpty(serverPassword) || identity.Password == serverPassword);
+            return context.User?.Identity is HttpListenerBasicIdentity identity
+                && TransportSecurity.IsValidUsername(identity.Name)
+                && (string.IsNullOrEmpty(serverPassword) || TransportSecurity.PasswordEquals(serverPassword, identity.Password));
+        }
+
+        private static bool CheckMutationOrigin(HttpListenerContext context)
+        {
+            var request = context.Request;
+            var fetchSite = request.Headers["Sec-Fetch-Site"];
+            return !string.Equals(fetchSite, "cross-site", StringComparison.OrdinalIgnoreCase)
+                && TransportSecurity.IsSameOrigin(request.Headers["Origin"], request.Url);
         }
 
         private static async Task HandleRequest(HttpListenerContext context)
         {
             var request = context.Request;
+            context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+            context.Response.Headers["Referrer-Policy"] = "no-referrer";
+            context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; script-src 'self' https://cdn.jsdelivr.net; connect-src 'self'";
             if (request.Url.Segments.Length < 2)
             {
+                if (request.HttpMethod != "GET") { RenderEmpty(context, 405); return; }
                 context.Response.ContentType = ContentTypes.Html;
                 RenderResource(context, "index.html");
                 return;
@@ -147,7 +182,7 @@ namespace DvMod.RemoteDispatch
                 else if (request.HttpMethod == "POST")
                 {
                     if (!(request.ContentType ?? "").StartsWith("application/json", StringComparison.OrdinalIgnoreCase)) { RenderEmpty(context, 415); return; }
-                    var origin = request.Headers["Origin"]; if (origin != null && (!Uri.TryCreate(origin, UriKind.Absolute, out var originUri) || originUri.Authority != request.Url.Authority)) { RenderEmpty(context, 403); return; }
+                    if (!CheckMutationOrigin(context)) { RenderEmpty(context, 403); return; }
                     if (request.ContentLength64 < 0 || request.ContentLength64 > 4096) { RenderEmpty(context, 413); return; }
                     using var reader = new StreamReader(request.InputStream, Encoding.UTF8); var payload = await reader.ReadToEndAsync().ConfigureAwait(false); JObject.Parse(payload);
                     result = await Updater.RunOnMainThread(() => BDVMIntegration.SubmitIntent(user, payload)).ConfigureAwait(false);
@@ -175,8 +210,7 @@ namespace DvMod.RemoteDispatch
                 else if ((action == "/route/preview" || action == "/route/apply" || action == "/route/assign" || action == "/route/control-ai") && request.HttpMethod == "POST")
                 {
                     if (!(request.ContentType ?? "").StartsWith("application/json", StringComparison.OrdinalIgnoreCase)) { RenderEmpty(context, 415); return; }
-                    var origin = request.Headers["Origin"];
-                    if (origin != null && (!Uri.TryCreate(origin, UriKind.Absolute, out var originUri) || originUri.Authority != request.Url.Authority)) { RenderEmpty(context, 403); return; }
+                    if (!CheckMutationOrigin(context)) { RenderEmpty(context, 403); return; }
                     if (request.ContentLength64 < 0 || request.ContentLength64 > 4096) { RenderEmpty(context, 413); return; }
                     using var reader = new StreamReader(request.InputStream, Encoding.UTF8);
                     var body = JObject.Parse(await reader.ReadToEndAsync().ConfigureAwait(false));
@@ -226,6 +260,7 @@ namespace DvMod.RemoteDispatch
 
             if (segments.Length == 4 && segments[3] == "control" && context.Request.HttpMethod == "POST")
             {
+                if (!CheckMutationOrigin(context)) { RenderEmpty(context, 403); return; }
                 var carGuid = segments[2].TrimEnd('/');
                 if (!Main.settings.permissions.HasLocoControlPermission(context.User.Identity.Name))
                 {
@@ -254,7 +289,9 @@ namespace DvMod.RemoteDispatch
             }
 
             var username = context.User?.Identity?.Name ?? "";
-            var sessionId = context.Request.Url.Segments[2];
+            var sessionId = context.Request.Url.Segments[2].TrimEnd('/');
+            if (context.Request.HttpMethod != "GET") { RenderEmpty(context, 405); return; }
+            if (!TransportSecurity.IsValidSessionId(sessionId)) { RenderEmpty(context, 400); return; }
             Render200(context, ContentTypes.Json, await Sessions.GetUpdates(username, sessionId).ConfigureAwait(false));
         }
 
@@ -275,6 +312,7 @@ namespace DvMod.RemoteDispatch
                 var junctionIdString = url.Segments[2].TrimEnd('/');
                 if (context.Request.HttpMethod == "POST" && int.TryParse(junctionIdString, out var junctionId) && url.Segments[3] == "toggle" && IsValidJunctionId(junctionId))
                 {
+                    if (!CheckMutationOrigin(context)) { RenderEmpty(context, 403); return; }
                     if (!Main.settings.permissions.HasJunctionPermission(context.User.Identity.Name))
                     {
                         RenderEmpty(context, 403);

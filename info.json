@@ -2,7 +2,7 @@
   "Id": "RemoteDispatchLive",
   "DisplayName": "Remote Dispatch Live",
   "Author": "Zeibach",
-  "Version": "1.8.0",
+  "Version": "1.8.1",
   "MultiplayerCompatibility": "Host",
   "AssemblyName": "RemoteDispatchLive.dll",
   "EntryMethod": "DvMod.RemoteDispatch.Main.Load",

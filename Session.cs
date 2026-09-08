@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Threading;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -11,6 +12,7 @@ namespace DvMod.RemoteDispatch
     public static class Sessions
     {
         private static readonly TimeSpan SessionTimeout = TimeSpan.FromMinutes(5);
+        private const int MaximumSessions = 64;
         private static readonly object allSesssionsLock = new object();
         private static readonly Dictionary<string, Session> allSessions = new Dictionary<string, Session>();
         private static readonly HashSet<string> AllTags = new HashSet<string>() { "cars", "jobs", "junctions", "player" };
@@ -23,6 +25,7 @@ namespace DvMod.RemoteDispatch
             public readonly string username;
             public readonly AsyncSet<string> pendingTags = new AsyncSet<string>();
             public readonly Stopwatch timeSinceLastFetch = new Stopwatch();
+            public readonly CancellationTokenSource cancellation = new CancellationTokenSource();
 
             public Session(string username)
             {
@@ -42,38 +45,36 @@ namespace DvMod.RemoteDispatch
         {
             lock (allSesssionsLock)
             {
-                List<string>? timedOutSessions = null;
-                foreach (var kvp in allSessions)
-                {
-                    var sessionId = kvp.Key;
-                    var session = kvp.Value;
-                    if (session.timeSinceLastFetch.Elapsed > SessionTimeout)
-                        (timedOutSessions ??= new List<string>()).Add(sessionId);
-                    else
-                        session.pendingTags.Add(tag);
-                }
-                if (timedOutSessions != null) foreach (var sessionId in timedOutSessions)
-                {
-                    Main.DebugLog(() => $"Session {sessionId} timed out");
-                    allSessions.Remove(sessionId);
-                    OnSessionEnded?.Invoke(sessionId);
-                }
+                RemoveExpiredSessionsLocked();
+                foreach (var session in allSessions.Values) session.pendingTags.Add(tag);
             }
         }
 
         private static async Task<IEnumerable<string>> GetTags(string username, string sessionId)
         {
             Session session;
+            string? startedUser = null;
             lock (allSesssionsLock)
             {
-                if (!allSessions.TryGetValue(sessionId, out session))
+                RemoveExpiredSessionsLocked();
+                if (!allSessions.TryGetValue(sessionId, out var existingSession))
                 {
+                    if (allSessions.Count >= MaximumSessions) throw new InvalidOperationException("Too many active browser sessions.");
                     Main.DebugLog(() => $"Starting new session {sessionId} for user {username}");
                     session = new Session(username);
                     allSessions.Add(sessionId, session);
-                    OnSessionStarted?.Invoke(username);
+                    startedUser = username;
+                }
+                else
+                {
+                    session = existingSession;
+                    if (!string.Equals(session.username, username, StringComparison.Ordinal))
+                        throw new UnauthorizedAccessException("This browser session belongs to another identity.");
                 }
             }
+
+            if (startedUser != null)
+                await Updater.RunOnMainThread(() => OnSessionStarted?.Invoke(startedUser)).ConfigureAwait(false);
 
             session.timeSinceLastFetch.Restart();
 
@@ -82,8 +83,30 @@ namespace DvMod.RemoteDispatch
                 return tags;
 
             // No data available
-            var (success, awaitedTag) = await session.pendingTags.TryTakeAsync(TimeSpan.FromMinutes(1)).ConfigureAwait(false);
+            var (success, awaitedTag) = await session.pendingTags.TryTakeAsync(TimeSpan.FromSeconds(25), session.cancellation.Token).ConfigureAwait(false);
             return success ? new string[1] { awaitedTag } : new string[0];
+        }
+
+        private static void RemoveExpiredSessionsLocked()
+        {
+            foreach (var item in allSessions.Where(item => item.Value.timeSinceLastFetch.Elapsed > SessionTimeout).ToArray())
+            {
+                allSessions.Remove(item.Key);
+                item.Value.cancellation.Cancel();
+                var username = item.Value.username;
+                _ = Updater.RunOnMainThread(() => OnSessionEnded?.Invoke(username));
+            }
+        }
+
+        public static void Reset()
+        {
+            Session[] sessions;
+            lock (allSesssionsLock)
+            {
+                sessions = allSessions.Values.ToArray();
+                allSessions.Clear();
+            }
+            foreach (var session in sessions) session.cancellation.Cancel();
         }
 
         private static JObject? GetUpdateForCarGuid(string carGuid)
