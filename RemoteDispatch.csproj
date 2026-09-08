@@ -4,10 +4,15 @@
     <LangVersion>8.0</LangVersion>
     <Nullable>enable</Nullable>
     <RootNamespace>DvMod.RemoteDispatch</RootNamespace>
-    <InformationalVersion>1.2.1</InformationalVersion>
+    <AssemblyName>RemoteDispatchLive</AssemblyName>
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests/**;artifacts/**</DefaultItemExcludes>
+    <InformationalVersion>1.8.0</InformationalVersion>
+    <GameDir Condition="'$(GameDir)' == ''">D:\Steam\steamapps\common\Derail Valley</GameDir>
+    <AssemblySearchPaths>$(AssemblySearchPaths);$(GameDir)\DerailValley_Data\Managed;$(GameDir)\DerailValley_Data\Managed\UnityModManager</AssemblySearchPaths>
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
     <PackageReference Include="Krafs.Publicizer" Version="2.2.1"/>
     <Publicize Include="Assembly-CSharp" IncludeCompilerGeneratedMembers="false"/>
   </ItemGroup>
@@ -20,10 +25,11 @@
     <Reference Include="DV.Interaction"/>
     <Reference Include="DV.PointSet"/>
     <Reference Include="DV.RailTrack" />
+    <Reference Include="BezierCurves" />
     <Reference Include="DV.ThingTypes"/>
     <Reference Include="DV.Utils"/>
     <Reference Include="Microsoft.CSharp"/>
-    <Reference Include="Newtonsoft.Json"/>
+    <Reference Include="Newtonsoft.Json" HintPath="$(GameDir)\DerailValley_Data\Managed\Newtonsoft.Json.dll" />
     <Reference Include="net.smkd.vector3d"/>
     <Reference Include="WorldStreamer" />
   </ItemGroup>
@@ -40,6 +46,12 @@
     <EmbeddedResource Include="leaflet.rotatedImageOverlay.js"/>
     <EmbeddedResource Include="licenses/*.png"/>
     <EmbeddedResource Include="main.js"/>
+    <EmbeddedResource Include="signal-canvas.js"/>
+    <EmbeddedResource Include="motion.js"/>
+    <EmbeddedResource Include="ai-traffic.js"/>
+    <EmbeddedResource Include="route-planner.js"/>
+    <EmbeddedResource Include="multiplayer.js"/>
+    <EmbeddedResource Include="bdvm.js"/>
     <EmbeddedResource Include="style.css"/>
   </ItemGroup>
 </Project>

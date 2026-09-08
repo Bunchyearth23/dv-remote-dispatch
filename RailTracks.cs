@@ -80,37 +80,26 @@ namespace DvMod.RemoteDispatch
 
         private static string? trackPointJSON;
 
+        public static void Reset() { trackPointJSON = null; TrackIdentity.Reset(); }
+
         private static string GenerateTrackPointJSON()
         {
             trackPointJSON = JsonConvert.SerializeObject(
                 GetNormalizedTrackCoordinates().ToDictionary(
-                    kvp => kvp.Key.LogicTrack().ID,
+                    kvp => TrackIdentity.Id(kvp.Key),
                     kvp => kvp.Value.Select(ll => ll.ToJson())));
             return trackPointJSON;
         }
 
-        public static async Task<string> GetTrackPointJSON()
-        {
-            if (trackPointJSON != null)
-                return trackPointJSON;
-            if (!WorldStreamingInit.Instance)
-                throw new Exception("World not yet loaded");
-
-            if (WorldStreamingInit.IsLoaded)
-                return GenerateTrackPointJSON();
-
-            var tcs = new TaskCompletionSource<string>();
-            WorldStreamingInit.LoadingFinished += () => tcs.TrySetResult(GenerateTrackPointJSON());
-            if (WorldStreamingInit.IsLoaded)
-                return GenerateTrackPointJSON();
-
-            return await tcs.Task.ConfigureAwait(false);
-        }
+        public static Task<string> GetTrackPointJSON() => Updater.RunOnMainThread(() =>
+            trackPointJSON ?? GenerateTrackPointJSON());
     }
 
     public static class Junctions
     {
         private static string junctionPointJSON = string.Empty;
+
+        public static void Reset() => junctionPointJSON = string.Empty;
 
         public static string GetJunctionPointJSON()
         {
@@ -124,7 +113,7 @@ namespace DvMod.RemoteDispatch
                         var moved = j.position - WorldMover.currentMove;
                         return new JObject(
                             new JProperty("position", new World.Position(moved.x, moved.z).ToLatLon().ToJson()),
-                            new JProperty("branches", j.outBranches.Select(b => b.track.LogicTrack().ID.ToString()))
+                            new JProperty("branches", j.outBranches.Select(b => TrackIdentity.Id(b.track)))
                         );
                     })
                 );

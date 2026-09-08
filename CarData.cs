@@ -93,11 +93,11 @@ namespace DvMod.RemoteDispatch
             {
                 var trainset = Trainset.allSets.Find(set => set.id == id);
                 if (trainset == null)
-                    return new Dictionary<string, JObject>();
+                    return new Dictionary<string, CarData>();
                 return trainset.cars
                     .Where(ShouldReturnTrainCar)
-                    .ToDictionary(car => car.ID, car => From(car).ToJson());
-            }).Result;
+                    .ToDictionary(car => car.ID, car => From(car));
+            }).Result.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.ToJson());
         }
 
         public static JObject GetTrainsetDataJson(int id)

@@ -43,6 +43,7 @@ namespace DvMod.RemoteDispatch
                             catch (Exception e)
                             {
                                 Main.DebugLog(() => $"Exception while handling HTTP request ({context.Request.Url}): {e}");
+                                try { RenderEmpty(context, 503); } catch { /* Client may have disconnected. */ }
                             }
                         });
                     }
@@ -87,17 +88,27 @@ namespace DvMod.RemoteDispatch
 
             switch (request.Url.Segments[1].TrimEnd('/'))
             {
+            case "route":
+                await HandleRouteRequest(context).ConfigureAwait(false);
+                break;
+            case "bdvm":
+                await HandleBDVMRequest(context).ConfigureAwait(false);
+                break;
+            case "infrastructure":
+                context.Response.Headers["Cache-Control"] = "no-store";
+                Render200(context, ContentTypes.Json, await InfrastructureData.GetJson().ConfigureAwait(false));
+                break;
             case "car":
-                HandleCarRequest(context);
+                await HandleCarRequest(context).ConfigureAwait(false);
                 break;
             case "job":
                 Render200(context, ContentTypes.Json, JobData.GetAllJobDataJson());
                 break;
             case "junction":
-                HandleJunctionRequest(context);
+                await HandleJunctionRequest(context).ConfigureAwait(false);
                 break;
             case "junctionState":
-                Render200(context, ContentTypes.Json, Junctions.GetJunctionStateJSON());
+                Render200(context, ContentTypes.Json, await Updater.RunOnMainThread(Junctions.GetJunctionStateJSON).ConfigureAwait(false));
                 break;
             case "player":
                 var playerJson = PlayerData.GetPlayerDataJson();
@@ -124,7 +135,75 @@ namespace DvMod.RemoteDispatch
             }
         }
 
-        private static async void HandleCarRequest(HttpListenerContext context)
+        private static async Task HandleBDVMRequest(HttpListenerContext context)
+        {
+            context.Response.Headers["Cache-Control"] = "no-store";
+            try
+            {
+                var request = context.Request; var user = context.User?.Identity?.Name ?? "";
+                if (!Main.settings.permissions.HasCompanyPermission(user)) { RenderEmpty(context, 403); return; }
+                string result;
+                if (request.HttpMethod == "GET") result = await Updater.RunOnMainThread(() => BDVMIntegration.GetState(user)).ConfigureAwait(false);
+                else if (request.HttpMethod == "POST")
+                {
+                    if (!(request.ContentType ?? "").StartsWith("application/json", StringComparison.OrdinalIgnoreCase)) { RenderEmpty(context, 415); return; }
+                    var origin = request.Headers["Origin"]; if (origin != null && (!Uri.TryCreate(origin, UriKind.Absolute, out var originUri) || originUri.Authority != request.Url.Authority)) { RenderEmpty(context, 403); return; }
+                    if (request.ContentLength64 < 0 || request.ContentLength64 > 4096) { RenderEmpty(context, 413); return; }
+                    using var reader = new StreamReader(request.InputStream, Encoding.UTF8); var payload = await reader.ReadToEndAsync().ConfigureAwait(false); JObject.Parse(payload);
+                    result = await Updater.RunOnMainThread(() => BDVMIntegration.SubmitIntent(user, payload)).ConfigureAwait(false);
+                }
+                else { RenderEmpty(context, 405); return; }
+                Render200(context, ContentTypes.Json, result);
+            }
+            catch (Exception exception)
+            {
+                context.Response.StatusCode = exception is UnauthorizedAccessException ? 403 : exception is ArgumentException || exception is JsonException ? 400 : 409;
+                context.Response.ContentType = ContentTypes.Json; var bytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(new { error = exception.Message })); context.Response.ContentLength64 = bytes.Length; await context.Response.OutputStream.WriteAsync(bytes, 0, bytes.Length).ConfigureAwait(false); context.Response.Close();
+            }
+        }
+
+        private static async Task HandleRouteRequest(HttpListenerContext context)
+        {
+            context.Response.Headers["Cache-Control"] = "no-store";
+            try
+            {
+                var request = context.Request;
+                var action = request.Url.AbsolutePath;
+                object result;
+                if (action == "/route/catalog" && request.HttpMethod == "GET")
+                    result = await RoutePlanner.Catalog().ConfigureAwait(false);
+                else if ((action == "/route/preview" || action == "/route/apply" || action == "/route/assign" || action == "/route/control-ai") && request.HttpMethod == "POST")
+                {
+                    if (!(request.ContentType ?? "").StartsWith("application/json", StringComparison.OrdinalIgnoreCase)) { RenderEmpty(context, 415); return; }
+                    var origin = request.Headers["Origin"];
+                    if (origin != null && (!Uri.TryCreate(origin, UriKind.Absolute, out var originUri) || originUri.Authority != request.Url.Authority)) { RenderEmpty(context, 403); return; }
+                    if (request.ContentLength64 < 0 || request.ContentLength64 > 4096) { RenderEmpty(context, 413); return; }
+                    using var reader = new StreamReader(request.InputStream, Encoding.UTF8);
+                    var body = JObject.Parse(await reader.ReadToEndAsync().ConfigureAwait(false));
+                    var owner = context.User.Identity.Name;
+                    if (action == "/route/preview")
+                        result = await RoutePlanner.Preview(owner, (string?)body["train"] ?? "", (string?)body["destination"] ?? "", (string?)body["via"]).ConfigureAwait(false);
+                    else if (action == "/route/assign")
+                        result = await RoutePlanner.AssignAi(owner, (string?)body["token"] ?? "").ConfigureAwait(false);
+                    else if (action == "/route/control-ai")
+                        result = await RoutePlanner.ControlAi(owner, (string?)body["train"] ?? "", (string?)body["action"] ?? "").ConfigureAwait(false);
+                    else result = await RoutePlanner.Apply(owner, (string?)body["token"] ?? "").ConfigureAwait(false);
+                }
+                else { RenderEmpty(context, 405); return; }
+                Render200(context, ContentTypes.Json, JsonConvert.SerializeObject(result));
+            }
+            catch (Exception e)
+            {
+                context.Response.StatusCode = e is UnauthorizedAccessException ? 403 : e is ArgumentException || e is JsonException ? 400 : 409;
+                context.Response.ContentType = ContentTypes.Json;
+                var bytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(new { error = e.Message }));
+                context.Response.ContentLength64 = bytes.Length;
+                await context.Response.OutputStream.WriteAsync(bytes, 0, bytes.Length).ConfigureAwait(false);
+                context.Response.Close();
+            }
+        }
+
+        private static async Task HandleCarRequest(HttpListenerContext context)
         {
             var segments = context.Request.Url.Segments;
             if (segments.Length == 2 && context.Request.HttpMethod == "GET")
@@ -148,21 +227,20 @@ namespace DvMod.RemoteDispatch
             if (segments.Length == 4 && segments[3] == "control" && context.Request.HttpMethod == "POST")
             {
                 var carGuid = segments[2].TrimEnd('/');
-                var controller = LocoControl.GetLocoController(carGuid);
-                if (controller == null)
-                {
-                    RenderEmpty(context, 404);
-                    return;
-                }
                 if (!Main.settings.permissions.HasLocoControlPermission(context.User.Identity.Name))
                 {
                     RenderEmpty(context, 403);
                     return;
                 }
-                var success = await Updater.RunOnMainThread(() =>
-                    LocoControl.RunCommand(controller, context.Request.QueryString)
-                ).ConfigureAwait(false);
-                RenderEmpty(context, success ? 204 : 400);
+                var status = await Updater.RunOnMainThread(() => {
+                    var controller = LocoControl.GetLocoController(carGuid);
+                    if (controller == null) return 404;
+                    var car = TrainCarRegistry.Instance.GetTrainCarByCarGuid(carGuid);
+                    if (MultiplayerData.CommandBlockReason(car) != null) return 409;
+                    return LocoControl.RunCommand(controller, context.Request.QueryString) ? 204 : 400;
+                }).ConfigureAwait(false);
+                RenderEmpty(context, status);
+                return;
             }
             RenderEmpty(context, 404);
         }
@@ -185,17 +263,17 @@ namespace DvMod.RemoteDispatch
             return junctionId >= 0 && junctionId < RailTrackRegistry.Instance.OrderedJunctions.Length;
         }
 
-        private static async void HandleJunctionRequest(HttpListenerContext context)
+        private static async Task HandleJunctionRequest(HttpListenerContext context)
         {
             var url = context.Request.Url;
             switch (url.Segments.Length)
             {
             case 2:
-                Render200(context, ContentTypes.Json, Junctions.GetJunctionPointJSON());
+                Render200(context, ContentTypes.Json, await Updater.RunOnMainThread(Junctions.GetJunctionPointJSON).ConfigureAwait(false));
                 break;
             case 4:
                 var junctionIdString = url.Segments[2].TrimEnd('/');
-                if (int.TryParse(junctionIdString, out var junctionId) && url.Segments[3] == "toggle" && IsValidJunctionId(junctionId))
+                if (context.Request.HttpMethod == "POST" && int.TryParse(junctionIdString, out var junctionId) && url.Segments[3] == "toggle" && IsValidJunctionId(junctionId))
                 {
                     if (!Main.settings.permissions.HasJunctionPermission(context.User.Identity.Name))
                     {
@@ -206,10 +284,13 @@ namespace DvMod.RemoteDispatch
                     {
                         Main.DebugLog(() => $"Toggling J-{junctionId}.");
                         var junction = RailTrackRegistry.Instance.OrderedJunctions[junctionId];
+                        if (MultiplayerData.CommandBlockReason(junction: junction) != null) return -1;
+                        if (AiTrafficData.JunctionBlockReason(junction) != null) return -1;
                         junction.Switch(Junction.SwitchMode.REGULAR);
-                        return junction.selectedBranch;
+                        return (int)junction.selectedBranch;
                     }).ConfigureAwait(false);
-                    Render200(context, new JValue(newSelectedBranch));
+                    if (newSelectedBranch < 0) RenderEmpty(context, 409);
+                    else Render200(context, new JValue(newSelectedBranch));
                     return;
                 }
                 RenderEmpty(context, 404);

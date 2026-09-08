@@ -2,6 +2,26 @@ const initialZoom = 20;
 const earthCircumference = 40e6;
 const metersToDegrees = 360 / earthCircumference;
 
+const movingMarkers = new Map();
+function queueMotion(marker, data, render) {
+  const previous = marker.lastMotion;
+  if (previous && previous[0] === data.position[0] && previous[1] === data.position[1] && previous[2] === data.rotation && previous[3] === data.length) return;
+  marker.lastMotion = [data.position[0], data.position[1], data.rotation, data.length];
+  if (!marker.motion) marker.motion = new MotionTrack();
+  marker.motion.push(data.position, data.rotation, performance.now());
+  movingMarkers.set(marker, render);
+}
+function animateMarkers(now) {
+  movingMarkers.forEach((render, marker) => {
+    const pose = marker.motion.at(now);
+    if (pose) render(pose);
+    if (marker.motion.settled(now)) movingMarkers.delete(marker);
+  });
+  if (markerToFollow && movingMarkers.has(markerToFollow))
+    map.panTo(markerToFollow.getBounds().getCenter(), { animate: false });
+  requestAnimationFrame(animateMarkers);
+}
+
 /////////////////////
 // map
 
@@ -9,6 +29,7 @@ const canvasRenderer = L.canvas();
 const mapBounds = [[0, 0], [0.15, 0.15]];
 const maxBounds = [[-0.02, -0.02], [0.17, 0.17]];
 const map = L.map('map', {
+  preferCanvas: true,
   minZoom: 13,
   maxBounds: maxBounds,
   tap: false,
@@ -25,13 +46,19 @@ const zoomHome = new L.Control.ZoomHome({
 }).addTo(map);
 
 let markerToFollow;
+const viewportOverlays = new Map();
+function refreshOverlayVisibility(layer, minZoom) {
+  const visible = map.getZoom() >= minZoom && map.getBounds().pad(0.2).intersects(layer.getBounds());
+  if (visible && !map.hasLayer(layer)) layer.addTo(map);
+  else if (!visible && map.hasLayer(layer)) map.removeLayer(layer);
+}
+function registerOverlay(layer, minZoom) {
+  viewportOverlays.set(layer, minZoom);
+  refreshOverlayVisibility(layer, minZoom);
+  return layer;
+}
+map.on('moveend zoomend', () => viewportOverlays.forEach((zoom, layer) => refreshOverlayVisibility(layer, zoom)));
 map.addEventListener('mousedown', stopFollowing);
-map.on('drag', () => {
-    map.fitBounds(map.getBounds());
-});
-map.on('zoomanim', () => {
-    map.fitBounds(map.getBounds());
-});
 
 function setMarkerToFollow(marker) {
   markerToFollow = marker;
@@ -45,7 +72,8 @@ function stopFollowing() {
 function zoomToAllPlayers() {
   const bounds = new L.LatLngBounds();
   playerMarkers.forEach(marker => bounds.extend(marker.getBounds()));
-  map.fitBounds(bounds, { maxZoom: initialZoom });
+  multiplayerView.markers.forEach(marker => bounds.extend(marker.getLatLng()));
+  if (bounds.isValid()) map.fitBounds(bounds, { maxZoom: initialZoom, padding:[60,60] });
 }
 
 map.addEventListener('zoomhome', () => {
@@ -104,6 +132,9 @@ function updateCarRow(carId) {
     return;
   const jobId = carJobIds.has(carId) ? carJobIds.get(carId) : '';
   const destinationYardId = allJobData.has(jobId) ? allJobData.get(jobId).destinationYardId : '';
+  const signature = `${carId}|${jobId}|${destinationYardId}`;
+  if (row.dataset.signature === signature) return;
+  row.dataset.signature = signature;
   row.innerHTML = `<td>${carId}</td><td>${jobId}</td><td>${destinationYardId}</td>`;
   tablesort.refresh();
 }
@@ -168,7 +199,7 @@ function colorForJobId(jobId) {
 }
 
 function yardIdForTrack(trackId) {
-  return trackId.split('-')[0];
+  return (trackId || '').split('-')[0];
 }
 
 function jobMatchesFilter(jobId, jobData) {
@@ -176,11 +207,11 @@ function jobMatchesFilter(jobId, jobData) {
     const activeOnly = document.getElementById('jobActiveOnly').checked;
   function taskFields(task) { return [task.startTrack, task.destinationTrack].concat(task.cars); }
   const fields = [jobId].concat(jobData.tasks.flatMap(taskFields));
-  return fields.some(field => field.includes(testText)) && (!activeOnly || jobData.isActive);
+  return fields.some(field => String(field || '').toUpperCase().includes(testText)) && (!activeOnly || jobData.isActive);
 }
 
 function jobElem(jobId, jobData) {
-  function replaceHyphens(s) { return s.replaceAll('-', '\u2011'); }
+  function replaceHyphens(s) { return (s || '—').replaceAll('-', '\u2011'); }
 
   const tbody = document.createElement('tbody');
   tbody.setAttribute('id', `jobList-${jobId}`);
@@ -198,15 +229,20 @@ function jobElem(jobId, jobData) {
       jobLicensesDiv.innerHTML += `<span class="jobList-license"><div class="jobList-licenseBackground"></div><img src="res/licenses.${license}.png" title="${license}"></span>`;
   }
   jobIdCell.appendChild(jobLicensesDiv);
+  if (jobData.yardMaster || jobData.error) {
+    const note = document.createElement('div');
+    note.textContent = jobData.error || (jobData.carsAssigned ? 'Yard Master · wagons affectés' : 'Yard Master · wagons à choisir au chargement');
+    jobIdCell.appendChild(note);
+  }
 
   row.appendChild(jobIdCell);
   tbody.appendChild(row);
 
   row = document.createElement('tr');
   jobMassCell = document.createElement('th');
-  jobMassCell.textContent = `${jobData.mass.toFixed(0)} t`;
+  jobMassCell.textContent = jobData.yardMaster && !jobData.carsAssigned ? 'Selon wagons' : `${jobData.mass.toFixed(0)} t`;
   jobLengthCell = document.createElement('th');
-  jobLengthCell.textContent = `${jobData.length.toFixed(0)} m`;
+  jobLengthCell.textContent = jobData.yardMaster && !jobData.carsAssigned ? 'À composer' : `${jobData.length.toFixed(0)} m`;
   jobPaymentCell = document.createElement('th');
   jobPaymentCell.textContent =
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
@@ -351,9 +387,9 @@ function createTrackLabel(trackId, position, angle) {
   svg.setAttribute('viewBox', '-50 -10 100 20');
   svg.innerHTML =
     `<text text-anchor="middle" dominant-baseline="central" transform="${rotation}" font-family="Arial" font-weight="bold" fill="steelblue" stroke="black" stroke-width="0.25px">${trackId.slice(trackId.indexOf('-') + 1)}</text>`;
-  L.svgOverlay(svg, bounds, { renderer: canvasRenderer })
+  registerOverlay(L.svgOverlay(svg, bounds, { renderer: canvasRenderer })
   .addTo(map)
-  .setZIndex(1000);
+  .setZIndex(1000), 17);
 }
 
 function pointDistance(p1, p2) {
@@ -404,6 +440,7 @@ const tracksReady = fetch(new URL('/track', location))
       interactive: false,
       renderer: canvasRenderer,
     }).addTo(map);
+    polyline.on('click', () => routePlannerView.pickTrack(trackId));
     trackPolyLines.set(trackId, polyline);
     if (isSiding)
       createTrackLabels(trackId, coords)
@@ -425,10 +462,15 @@ const junctionsReady = tracksReady
 );
 
 function toggleJunction(junctionId) {
+  if (!infrastructureFresh() || !multiplayerCanCommand) return;
+  if (aiJunctionLocks.has(junctionId)) {
+    infrastructureStatus.textContent = 'Aiguillage verrouillé par AITraffic';
+    return;
+  }
   fetch(new URL(`/junction/${junctionId}/toggle`, location), { method: 'POST' })
-  .then(resp => resp.json())
+  .then(resp => { if (!resp.ok) throw new Error(resp.status === 409 ? 'Verrou AITraffic actif ou indisponible' : `HTTP ${resp.status}`); return resp.json(); })
   .then(selectedBranch => updateJunctionOverlay(junctionId, selectedBranch))
-  .catch(err => {});
+  .catch(err => { infrastructureStatus.textContent = `Commande refusée : ${err.message}`; });
 }
 
 const junctionCanvasSize = 30;
@@ -444,7 +486,7 @@ function createJunctionShape(selectedBranch) {
 }
 
 function createJunctionLabel(junctionId) {
-  return `<text x="${-junctionCanvasSize/2+5}" y="${junctionCanvasSize-5}">${junctionId}</text>`
+  return `<span class="dispatch-junction-label">J-${junctionId}</span>`;
 }
 
 function createJunctionOverlay(junctionId) {
@@ -458,13 +500,29 @@ function createJunctionOverlay(junctionId) {
 
 function updateJunctionOverlay(junctionId, selectedBranch) {
   const junction = junctions[junctionId]
-  junction.marker.getElement().innerHTML = createJunctionShape(selectedBranch) + createJunctionLabel(junctionId);
-  const selectedTrackId = junction.branches[selectedBranch]
-  trackPolyLines.get(selectedTrackId).setStyle({ color: 'steelblue', dashArray: null });
-  const unselectedTrackPolyLine = trackPolyLines.get(junction.branches[1-selectedBranch]);
-  unselectedTrackPolyLine
-    .setStyle({ color: 'lightsteelblue', dashArray: "6 12" })
-    .bringToBack();
+  if (!junction) return;
+  if (junction.selectedBranch === selectedBranch) return;
+  const changed = junction.selectedBranch !== undefined;
+  junction.selectedBranch = selectedBranch;
+  setJunctionIcon(junction, junctionId, changed);
+  junction.routes?.forEach((route, index) => route?.setStyle({
+    color: index === selectedBranch ? '#39f1dd' : '#77818f',
+    opacity: index === selectedBranch ? 1 : 0.45,
+    dashArray: index === selectedBranch ? null : '3 7', weight: index === selectedBranch ? 8 : 3
+  }));
+  const label = document.createElement('span');
+  label.textContent = `J-${junctionId} → ${junction.branches[selectedBranch] ?? 'inconnu'}`;
+  junction.marker.bindTooltip(label);
+}
+
+function setJunctionIcon(junction, id, changed = false) {
+  // Leaflet destroys Marker DOM when viewport culling removes the layer.
+  // setIcon also stores the appearance while detached, for its next onAdd.
+  junction.marker.setIcon(L.divIcon({
+    className: 'dispatch-junction' + (junction.aiLocked ? ' ai-locked' : '') + (changed ? ' junction-changed' : ''),
+    iconSize: [72,72], iconAnchor: [36,36],
+    html: createJunctionDirection(junction, junction.selectedBranch) + createJunctionLabel(id)
+  }));
 }
 
 function getJunctionOverlayBounds(position) {
@@ -473,13 +531,33 @@ function getJunctionOverlayBounds(position) {
 }
 
 function createJunctionMarker(p, junctionId) {
-  return L.svgOverlay(
-    createJunctionOverlay(junctionId),
-    getJunctionOverlayBounds(p),
-    { interactive: true, renderer: canvasRenderer })
+  const marker = L.marker(p, {icon:L.divIcon({className:'dispatch-junction',iconSize:[72,72],iconAnchor:[36,36],html:'?'}),zIndexOffset:500})
     .addEventListener('click', () => toggleJunction(junctionId) )
-    .addTo(map)
-    .setZIndex(Math.floor(p[0] * 100000 + p[1] * 100000));
+    .addTo(map);
+  marker.getBounds = () => L.latLngBounds(getJunctionOverlayBounds(p));
+  return registerOverlay(marker, 16);
+}
+
+function createJunctionDirection(junction, selected) {
+  const directions = (junction.routes || []).map(route => {
+    if (!route) return null;
+    const points = route.getLatLngs();
+    const first = points[0], next = points.find(p => p.lat !== first.lat || p.lng !== first.lng);
+    if (!next) return null;
+    const dx = next.lng-first.lng, dy = first.lat-next.lat, length = Math.hypot(dx,dy);
+    return {x:dx/length,y:dy/length};
+  });
+  const direction = directions[selected];
+  if (!direction) return '<span class="junction-side">?</span>';
+  const average = directions.reduce((a,d) => d ? {x:a.x+d.x,y:a.y+d.y} : a, {x:0,y:0});
+  const cross = average.x*direction.y-average.y*direction.x;
+  const side = Math.abs(cross)<0.001 ? 0 : Math.sign(cross);
+  const label = directions.length === 2 && directions.every(Boolean) && side ? (side<0?'GAUCHE':'DROITE') : 'BRANCHE '+(selected+1);
+  const angle = Math.atan2(direction.y,direction.x)*180/Math.PI;
+  // Shift toward the selected side, keeping the arrow parallel to that rail.
+  const offsetX = -direction.y*side*12, offsetY = direction.x*side*12;
+  return `<svg viewBox="-38 -38 76 76" aria-hidden="true"><circle r="3" fill="white" stroke="#10202c" stroke-width="2"/>
+    <g transform="translate(${offsetX} ${offsetY}) rotate(${angle})"><path class="junction-arrow" d="M -24 -6 L 7 -6 L 7 -15 L 27 0 L 7 15 L 7 6 L -24 6 Z" fill="#fff34b" stroke="#10202c" stroke-width="3" stroke-linejoin="round"/></g></svg><span class="junction-side">${label}</span>`;
 }
 
 function updateAllJunctions(states) {
@@ -536,13 +614,19 @@ function updatePlayerOverlays(data) {
   });
   Object.entries(data).forEach(([id, playerData]) => {
     const polygonElem = document.getElementById(`playerPolygon-${id}`);
-    polygonElem.setAttribute('transform', `rotate(${playerData.rotation})`);
-    playerMarkers.get(id).setBounds(getPlayerOverlayBounds(playerData.position));
+    const marker = playerMarkers.get(id);
+    queueMotion(marker, playerData, pose => {
+      polygonElem.setAttribute('transform', `rotate(${pose.rotation})`);
+      marker.setLatLng(pose.position);
+    });
   });
 }
 
 function removePlayerOverlay(id) {
-  document.getElementById(`playerPolygon-${id}`)?.remove();
+  const marker = playerMarkers.get(id);
+  movingMarkers.delete(marker);
+  if (markerToFollow === marker) stopFollowing();
+  marker?.remove();
   playerMarkers.delete(id);
 }
 
@@ -552,21 +636,25 @@ function createPlayerOverlay(id, playerData) {
   const polygon = document.createElementNS(svg.namespaceURI, 'polygon');
   polygon.setAttribute('id', `playerPolygon-${id}`);
   polygon.setAttribute('fill', playerData.color);
-  polygon.setAttribute('fill-opacity', '70%');
-  polygon.setAttribute('stroke', 'black');
-  polygon.setAttribute('stroke-width', '1%');
+  polygon.setAttribute('fill-opacity', '100%');
+  polygon.setAttribute('stroke', '#fff');
+  polygon.setAttribute('stroke-width', '1.5');
   polygon.setAttribute('points', '0,-10 10,10 0,5 -10,10');
   svg.appendChild(polygon);
   return svg;
 }
 
 function createPlayerMarker(id, playerData) {
-  playerMarkers.set(id, L.svgOverlay(
-    createPlayerOverlay(id, playerData),
-    getPlayerOverlayBounds(playerData.position),
-    { interactive: true, bubblingMouseEvents: false })
+  const marker = L.marker(playerData.position,
+    { icon: L.divIcon({html:createPlayerOverlay(id, playerData),className:'dispatch-player',iconSize:[36,36],iconAnchor:[18,18]}),
+      zIndexOffset:2000, interactive: true, bubblingMouseEvents: false })
     .addEventListener('click', e => setMarkerToFollow(e.target))
-    .addTo(map));
+    .addTo(map);
+  marker.getBounds = () => L.latLngBounds([marker.getLatLng(), marker.getLatLng()]);
+  const label = document.createElement('span');
+  label.textContent = id === 'player' ? 'Vous · joueur local' : id;
+  marker.bindTooltip(label, {permanent:true,direction:'right',offset:[20,0],className:'dispatch-player-label'});
+  playerMarkers.set(id, marker);
 }
 
 function scrollToTrack(trackId) {
@@ -588,6 +676,7 @@ fetch(new URL('/player', location))
 
 const locoIdSelect = document.getElementById('locoControlLocoId');
 function updateLocoList() {
+  const selected = locoIdSelect.value;
   for (const elem of Array.from(locoIdSelect.children))
     elem.remove();
   const locoIds = Array.from(allCarData.entries())
@@ -599,6 +688,7 @@ function updateLocoList() {
     option.textContent = id;
     locoIdSelect.appendChild(option);
   }
+  if (locoIds.includes(selected)) locoIdSelect.value = selected;
 }
 
 function isReverserButtonActive(faButton) {
@@ -634,11 +724,13 @@ function updateCouplingControls(carData) {
   const carsInRear = carData.carsInRear;
 
   locoControlCoupleButton.disabled = !canCouple;
-  locoControlUncoupleButton.disabled = carsInFront == 0 && carsInRear && 0;
+  locoControlUncoupleButton.disabled = carsInFront === 0 && carsInRear === 0;
 
-  if (locoControlUncoupleSelect.childElementCount == carsInFront + carsInRear) {
+  const signature = `${carsInFront}|${carsInRear}`;
+  if (locoControlUncoupleSelect.consistSignature === signature) {
     return;
   }
+  locoControlUncoupleSelect.consistSignature = signature;
 
   const options = [];
   for (let i = carsInFront; i >= 1; i--)
@@ -687,9 +779,25 @@ function updateLocoThrottleInput(carData) {
   locoThrottleInput.value = carData.throttle * 100;
 }
 
-function updateLocoDisplay() {
-  getControlledLocoData()
-  .then(carData => {
+let locoDisplayPending = false;
+async function updateLocoDisplay() {
+  if (locoDisplayPending || document.hidden) return;
+  const guid = getControlledLocoGuid();
+  const status = document.getElementById('locoCommandStatus');
+  if (!guid) {
+    status.textContent = 'Aucune locomotive contrôlable disponible.';
+    locoBrakePipeDisplay.textContent = locoSpeedDisplay.textContent = '—';
+    return;
+  }
+  locoDisplayPending = true;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(`/car/${guid}`, {signal:controller.signal,cache:'no-store'});
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const carData = await response.json();
+    if (guid !== getControlledLocoGuid()) return;
+    if (status.textContent.startsWith('Lecture indisponible') || status.textContent.startsWith('Aucune locomotive')) status.textContent = '';
     locoBrakePipeDisplay.textContent = carData.brakePipe.toFixed(1);
     locoSpeedDisplay.textContent = carData.forwardSpeed.toFixed(0);
     updateLocoTrainBrakeInput(carData);
@@ -697,7 +805,8 @@ function updateLocoDisplay() {
     updateReverserButtons(carData.reverser);
     updateLocoThrottleInput(carData);
     updateCouplingControls(carData);
-  });
+  } catch (error) { status.textContent = `Lecture indisponible : ${error.message}`; }
+  finally { clearTimeout(timeout); locoDisplayPending = false; }
 }
 
 let locoControlRefreshIntervalId;
@@ -714,9 +823,13 @@ sidebar.on("closing", e => {
 })
 
 function sendLocoCommand(command) {
+  const status = document.getElementById('locoCommandStatus');
+  if (!multiplayerCanCommand) { status.textContent = 'Commandes indisponibles ici : vérifiez le panneau Multiplayer et la connexion.'; return; }
   const guid = getControlledLocoGuid();
   if (guid) {
-    fetch(new URL(`/car/${guid}/control?${command}`, location), { method: 'POST' });
+    fetch(new URL(`/car/${guid}/control?${command}`, location), { method: 'POST' })
+      .then(response => { status.textContent = response.ok ? '' : response.status === 409 ? 'Commande refusée : autorité réseau indisponible ou train occupé.' : `Commande refusée (${response.status}).`; })
+      .catch(() => { status.textContent = 'Connexion perdue ; commande non confirmée.'; });
   }
 }
 
@@ -835,10 +948,17 @@ function updateCarMarker(carId) {
   if (!marker)
     return;
   const carData = allCarData.get(carId);
-  marker.setBounds(getCarOverlayBounds(carData));
-  marker.setRotationAngle(carData.rotation - 90);
-  marker.getElement().innerHTML = createCarShape(carId, carData) + createCarLabel(carId, carData);
-  updateCarColor(carId);
+  queueMotion(marker, carData, pose => {
+    marker.options.rotationAngle = pose.rotation - 90;
+    marker.setBounds(getCarOverlayBounds({ ...pose, length: carData.length }));
+    refreshOverlayVisibility(marker, carId.startsWith('L-') ? 0 : 16);
+  });
+  const signature = `${carData.length}|${carData.rotation >= 180}|${carJobIds.get(carId)}|${getCarColor(carId)}`;
+  if (marker.appearance !== signature) {
+    marker.appearance = signature;
+    marker.getElement().innerHTML = createCarShape(carId, carData) + createCarLabel(carId, carData);
+    updateCarColor(carId);
+  }
 }
 
 function getCarOverlayBounds(carData) {
@@ -858,6 +978,7 @@ function createNewCar(carId, carData) {
     .addEventListener('mouseup', e => followCar(carId, true))
     .addTo(map);
   carMarkers.set(carId, overlay);
+  registerOverlay(overlay, carId.startsWith('L-') ? 0 : 16);
   updateCarMarker(carId);
 }
 
@@ -871,6 +992,9 @@ function removeCar(carId) {
   removeCarRow(carId);
   const marker = carMarkers.get(carId);
   if (marker) {
+    movingMarkers.delete(marker);
+    viewportOverlays.delete(marker);
+    if (markerToFollow === marker) stopFollowing();
     marker.remove();
     carMarkers.delete(carId);
   }
@@ -910,7 +1034,7 @@ let updateStart;
 function updateOnce() {
   updateStart = performance.now();
   return fetch(new URL(`/updates/${sessionId}`, location))
-  .then(resp => resp.json())
+  .then(resp => { if (!resp.ok) throw new Error(`HTTP ${resp.status}`); return resp.json(); })
   .then(updateData => {
     Object.entries(updateData).forEach(([tag, data]) => {
       switch (tag) {
@@ -934,21 +1058,170 @@ function updateOnce() {
         }
       }
     });
-  })
-  .then(_ => {
-    if (markerToFollow)
-      map.panTo(markerToFollow.getBounds().getCenter());
   });
 }
 
 function updateLoop() {
+  if (document.hidden) { setTimeout(updateLoop, 1000); return; }
   updateOnce()
   .then(_ => {
     const timeToNextUpdate = (updateStart + updateInterval) - performance.now();
     setTimeout(updateLoop, timeToNextUpdate);
-  });
+  }).catch(() => setTimeout(updateLoop, 2000));
 }
 
 junctionsReady.then(_ => {
   updateLoop();
 });
+
+// Independent snapshots keep infrastructure live even when no game events fire.
+const signalLayer = L.layerGroup().addTo(map);
+const signalRenderer = new SignalCanvas({ padding: 0.2 });
+const signalMarkers = new Map();
+const aiJunctionLocks = new Map();
+let multiplayerCanCommand = false;
+const multiplayerView = new MultiplayerView({ map,
+  move: (marker, player, render) => {
+    if (!marker.motion) marker.motion = new MotionTrack(550);
+    queueMotion(marker, player, render);
+  }, removeMotion: marker => movingMarkers.delete(marker) });
+const routePlannerView = new RoutePlannerView({ map, tracks: trackPolyLines });
+const aiTrafficView = new AiTrafficView({ map, tracks: trackPolyLines, signals: signalMarkers,
+  follow: train => carMarkers.has(train.carId) ? followCar(train.carId, false) : map.panTo(train.position),
+  move: (marker, train, render) => {
+    if (!marker.motion) marker.motion = new MotionTrack(550);
+    queueMotion(marker, train, render);
+  }, removeMotion: marker => movingMarkers.delete(marker) });
+L.control.layers(null, { 'Signaux DVSignals': signalLayer, 'Trains AI': aiTrafficView.layer, 'Réservations / itinéraire AI': aiTrafficView.routes, 'Joueurs multiplayer': multiplayerView.layer }).addTo(map);
+const infrastructureControl = L.control({ position: 'bottomleft' });
+let infrastructureStatus;
+infrastructureControl.onAdd = () => {
+  const panel = L.DomUtil.create('div', 'infrastructure-status');
+  infrastructureStatus = L.DomUtil.create('div', '', panel);
+  infrastructureStatus.textContent = 'Connexion à l’infrastructure…';
+  const legend = L.DomUtil.create('div', 'infrastructure-legend', panel);
+  legend.textContent = 'Rouge : passage interdit • Bleu : passage non interdit • Gris : éteint / inconnu';
+  L.DomEvent.disableClickPropagation(panel);
+  return panel;
+};
+infrastructureControl.addTo(map);
+let lastInfrastructureUpdate = 0;
+let infrastructureAvailable = false;
+function infrastructureFresh() {
+  return infrastructureAvailable && performance.now() - lastInfrastructureUpdate < 3000;
+}
+setInterval(() => {
+  const stale = !infrastructureFresh();
+  document.getElementById('map').classList.toggle('infrastructure-stale', stale);
+  document.getElementById('map').classList.toggle('multiplayer-readonly', !multiplayerCanCommand);
+  if (lastInfrastructureUpdate && stale) infrastructureStatus.textContent = 'Données périmées — reconnexion en cours';
+}, 500);
+
+function renderInfrastructure(data) {
+  if (!data.worldLoaded) {
+    infrastructureAvailable = false;
+    infrastructureStatus.textContent = 'En attente du chargement de la partie';
+    signalLayer.clearLayers();
+    signalMarkers.clear();
+    aiTrafficView.update({status:'world-unavailable'});
+    multiplayerCanCommand = false;
+    multiplayerView.update({status:'world-unavailable'});
+    aiJunctionLocks.clear();
+    return;
+  }
+  data.junctions.forEach(data => {
+    let junction = junctions[data.id];
+    const signature = JSON.stringify([data.position, data.branches]);
+    if (!junction || junction.signature !== signature) {
+      junction?.marker.remove();
+      if (junction) viewportOverlays.delete(junction.marker);
+      junction?.routes?.forEach(route => route?.remove());
+      junction = junctions[data.id] = {
+        marker: createJunctionMarker(data.position, data.id), branches: data.branches, signature,
+        routes: data.branches.map(id => {
+          const track = trackPolyLines.get(id);
+          if (!track) return null;
+          let points = track.getLatLngs().slice();
+          const position = L.latLng(data.position);
+          if (position.distanceTo(points[0]) > position.distanceTo(points[points.length - 1])) points.reverse();
+          // Highlight only the turnout end; the other end can belong to another junction.
+          return L.polyline(points.slice(0, 2), { renderer: canvasRenderer, interactive: false, className: 'junction-route' }).addTo(map);
+        })
+      };
+    }
+    updateJunctionOverlay(data.id, data.selectedBranch);
+  });
+  while (junctions.length > data.junctions.length) {
+    const junction = junctions.pop();
+    junction.marker.remove();
+    viewportOverlays.delete(junction.marker);
+    junction.routes?.forEach(route => route?.remove());
+  }
+  const seen = new Set();
+  data.signals.forEach(signal => {
+    seen.add(signal.id);
+    const signature = JSON.stringify(signal);
+    if (signalMarkers.get(signal.id)?.signature === signature) return;
+    // Blue deliberately means only that DVSignals does not prohibit passing.
+    // A custom aspect may still impose speed restrictions; its exact ID is shown.
+    const color = signal.isOff || signal.disallowPassing == null ? '#939ba6' :
+      signal.disallowPassing ? '#ff4e55' : '#48b9ff';
+    const style = { fillColor: color, heading: signal.heading };
+    let marker = signalMarkers.get(signal.id);
+    if (!marker) {
+      marker = new SignalSymbol(signal.position, { renderer: signalRenderer, radius: 9, ...style }).addTo(signalLayer);
+      signalMarkers.set(signal.id, marker);
+    } else marker.setLatLng(signal.position).setStyle(style);
+    marker.signature = signature;
+    const label = document.createElement('div');
+    label.textContent = `${signal.name} · ${signal.isOff ? 'Éteint' : signal.aspect ?? 'Inconnu'} · ${signal.operation}${signal.shunting ? ' · Manœuvre' : ''}`;
+    marker.bindTooltip(label);
+  });
+  signalMarkers.forEach((marker, id) => {
+    if (!seen.has(id)) { signalLayer.removeLayer(marker); signalMarkers.delete(id); }
+  });
+  aiTrafficView.update(data.aiTraffic);
+  multiplayerCanCommand = data.multiplayer?.canCommand === true;
+  multiplayerView.update(data.multiplayer);
+  aiJunctionLocks.clear();
+  if (data.aiTraffic?.status === 'ready') (data.aiTraffic.junctionLocks || []).forEach(item => aiJunctionLocks.set(item.junctionId, item));
+  junctions.forEach((junction, id) => {
+    const lock = aiJunctionLocks.get(id);
+    const owner = lock && data.aiTraffic.trains.find(train => train.id === lock.ownerId)?.carId;
+    const signature = `${junction.selectedBranch}|${Boolean(lock)}|${owner}`;
+    if (junction.lockSignature === signature) return;
+    junction.lockSignature = signature;
+    if (junction.aiLocked !== Boolean(lock)) {
+      junction.aiLocked = Boolean(lock);
+      setJunctionIcon(junction, id);
+    }
+    const label = document.createElement('span');
+    label.textContent = `J-${id} → ${junction.branches[junction.selectedBranch] ?? '?'}${lock ? ` · Verrou AI : ${owner || 'propriétaire inconnu'}` : ''}`;
+    junction.marker.bindTooltip(label);
+  });
+  lastInfrastructureUpdate = performance.now() - (Number(data.captureWallMs) || 0);
+  infrastructureAvailable = true;
+  infrastructureStatus.textContent = `${data.junctions.length} jonctions · ${data.signals.length} signaux · ${data.signalsStatus} · ${new Date(data.sampledAt).toLocaleTimeString()}`;
+  infrastructureStatus.title = `Lecture Unity : ${Number(data.captureMainThreadMs || 0).toFixed(2)} ms au total, plus longue tranche : ${Number(data.maxSliceMs || 0).toFixed(2)} ms`;
+}
+
+async function pollInfrastructure() {
+  if (document.hidden) { setTimeout(pollInfrastructure, 1000); return; }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(new URL('/infrastructure', location), { cache: 'no-store', signal: controller.signal });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    renderInfrastructure(await response.json());
+  } catch (error) {
+    infrastructureAvailable = false;
+    infrastructureStatus.textContent = `Infrastructure indisponible · ${error.message}`;
+  } finally {
+    clearTimeout(timeout);
+    setTimeout(pollInfrastructure, 500);
+  }
+}
+junctionsReady.then(pollInfrastructure).catch(() => {
+  infrastructureStatus.textContent = 'Carte indisponible — recharge la page après le chargement de la partie';
+});
+requestAnimationFrame(animateMarkers);

@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><Nullable>enable</Nullable><RollForward>Major</RollForward></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../InfrastructureData.cs" Link="InfrastructureData.cs" />
+    <Compile Include="../../AiTrafficData.cs" Link="AiTrafficData.cs" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+</Project>

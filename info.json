@@ -1,12 +1,12 @@
 {
-  "Id": "RemoteDispatch",
-  "DisplayName": "Remote Dispatch",
+  "Id": "RemoteDispatchLive",
+  "DisplayName": "Remote Dispatch Live",
   "Author": "Zeibach",
-  "Version": "1.2.1",
-  "AssemblyName": "RemoteDispatch.dll",
+  "Version": "1.8.0",
+  "MultiplayerCompatibility": "Host",
+  "AssemblyName": "RemoteDispatchLive.dll",
   "EntryMethod": "DvMod.RemoteDispatch.Main.Load",
-  "LoadAfter": [ "PersistentJobsMod" ],
+  "LoadAfter": [ "PersistentJobsMod", "SelfShunt", "DoubleTrack", "DVSignals", "AITraffic", "Multiplayer" ],
   "ManagerVersion": "0.27.3",
-  "HomePage": "https://www.nexusmods.com/derailvalley/mods/328",
-  "Repository": "https://raw.githubusercontent.com/mspielberg/dv-remote-dispatch/master/resources/repository.json"
+  "HomePage": "https://www.nexusmods.com/derailvalley/mods/328"
 }

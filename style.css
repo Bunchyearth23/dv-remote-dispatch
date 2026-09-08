@@ -197,3 +197,44 @@ body {
 #jobList {
     clear: left;
 }
+ .infrastructure-status { background: #18232eee; color: #f0f4f8; padding: 10px 14px; border-radius: 6px; max-width: 420px; }
+ .infrastructure-legend { font-size: 11px; margin-top: 5px; }
+ .signal-marker span { display: block; font-size: 23px; text-shadow: 0 1px 3px #000; }
+ .infrastructure-stale .signal-marker { opacity: .35; filter: grayscale(1); }
+ .infrastructure-stale .signal-canvas { opacity: .35; filter: grayscale(1); }
+ .dispatch-player { border-radius:50%; background:#14232ddd; box-shadow:0 0 0 2px white,0 0 0 6px #20cfe84d,0 2px 12px #000; }
+ .dispatch-player svg, .dispatch-junction svg { width:100%; height:100%; }
+ .dispatch-player-label { background:#14232df2; color:white; border:1px solid #a9edff; font-weight:bold; font-size:13px; padding:5px 9px; }
+ .dispatch-junction { background:transparent; border-radius:50%; }
+ .dispatch-junction-label { position:absolute; top:76px; left:50%; transform:translateX(-50%); color:white; background:#10202ce8; font:bold 10px sans-serif; padding:1px 3px; white-space:nowrap; }
+ .junction-side { position:absolute; top:62px; left:50%; transform:translateX(-50%); color:#fff34b; background:#10202cf2; font:bold 11px sans-serif; padding:2px 4px; white-space:nowrap; }
+ .junction-arrow { filter:drop-shadow(0 0 2px white); }
+ .junction-changed .junction-arrow { animation:junction-switch .65s ease-out; }
+ @keyframes junction-switch { 0%,40% {fill:white;stroke:#ff9b24;stroke-width:5} 100% {fill:#fff34b;stroke:#10202c;stroke-width:3} }
+ @media(prefers-reduced-motion:reduce) { .junction-changed .junction-arrow {animation:none} }
+ .infrastructure-stale .dispatch-junction { opacity:.35; }
+ .dispatch-junction.ai-locked { box-shadow:0 0 0 2px #ffb24e; }
+ .infrastructure-stale svg[id^="J-"] { opacity: .35; }
+ .infrastructure-stale .junction-route { opacity: .35; }
+ .ai-train-marker { white-space: nowrap; color: #fff; font-size: 11px; font-weight: bold; text-align: center; }
+ .ai-train-marker span { background: #12596c; padding: 3px 6px; border: 1px solid #67deff; border-radius: 4px; }
+ .ai-locked { outline: 2px solid #ffb547; }
+ .infrastructure-stale .ai-train-marker, .infrastructure-stale .ai-route { opacity: .35; }
+ #aiSearch { width: 100%; box-sizing: border-box; padding: 8px; }
+ .ai-train-row { display: block; width: 100%; text-align: left; white-space: pre-line; padding: 10px; margin: 6px 0; cursor: pointer; }
+ .ai-train-row[aria-pressed="true"] { border: 2px solid #2386b0; }
+ #aiMissingTracks { color: #b25f00; }
+#routeTab label { display: block; margin-top: 14px; margin-bottom: 5px; }
+#routeTab select, #routeTab input { box-sizing: border-box; width: 100%; min-width: 0; padding: 7px; }
+#routeTab button { padding: 7px 10px; margin: 4px 0; cursor: pointer; }
+#routeTab button:disabled { opacity: .5; cursor: default; }
+.route-input { display: flex; gap: 6px; align-items: center; }
+.route-input button { flex-shrink: 0; }
+#routeStatus { white-space: pre-line; font-weight: bold; }
+#routeConflicts { color: #ed9e56; padding-left: 20px; }
+#routeRecent { display: flex; flex-direction: column; align-items: stretch; }
+.route-note { font-size: .9em; opacity: .85; }
+.route-picking, .route-picking .leaflet-interactive { cursor: crosshair !important; }
+#multiplayerPlayers { display: flex; flex-direction: column; gap: 7px; }
+#multiplayerPlayers button { padding: 8px; text-align: left; cursor: pointer; }
+.infrastructure-stale .multiplayer-player { opacity: .35; }

@@ -70,6 +70,7 @@ namespace DvMod.RemoteDispatch
             public string name;
             public bool canToggleJunctions;
             public bool canControlLocomotives;
+            public bool canManageCompany;
 
             public PlayerPermissions()
             {
@@ -99,6 +100,11 @@ namespace DvMod.RemoteDispatch
             return permissions.Find(p => p.name == username)?.canControlLocomotives ?? false;
         }
 
+        public bool HasCompanyPermission(string username)
+        {
+            return permissions.Find(p => p.name == username)?.canManageCompany ?? false;
+        }
+
         private void OnSessionStarted(string username)
         {
             if (!permissions.Any(p => p.name == username))
@@ -116,6 +122,7 @@ namespace DvMod.RemoteDispatch
             DrawConnectedColumn();
             DrawJunctionsColumn();
             DrawLocoControlColumn();
+            DrawCompanyColumn();
             GUILayout.EndHorizontal();
         }
 
@@ -147,6 +154,11 @@ namespace DvMod.RemoteDispatch
         private void DrawLocoControlColumn()
         {
             DrawColumn("Locomotive Control", p => p.canControlLocomotives = GUILayout.Toggle(p.canControlLocomotives, ""));
+        }
+
+        private void DrawCompanyColumn()
+        {
+            DrawColumn("BDVM", p => p.canManageCompany = GUILayout.Toggle(p.canManageCompany, ""));
         }
     }
 }

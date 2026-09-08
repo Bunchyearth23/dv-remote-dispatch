@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+  <meta charset="utf-8">
   <title>Derail Valley Remote Dispatch Console</title>
   <link rel="icon" href="res/icon.svg">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.7.1/dist/leaflet.css" integrity="sha256-BPfK9M5v34c2XP6p0cxVz1mUQLst0gTLk0mlc7kuodA=" crossorigin="anonymous">
@@ -19,6 +20,10 @@
     <ul role="tablist">
       <li><a href="#carsTab" role="tab"><i class="fas fa-train" title="Cars"></i></a></li>
       <li><a href="#jobsTab" role="tab"><i class="fas fa-clipboard-list" title="Jobs"></i></a></li>
+      <li><a href="#aiTab" role="tab"><i class="fas fa-route" title="Trafic AI"></i></a></li>
+      <li><a href="#routeTab" role="tab"><i class="fas fa-map-signs" title="Préparer un itinéraire"></i></a></li>
+      <li><a href="#multiplayerTab" role="tab"><i class="fas fa-users" title="Multiplayer"></i></a></li>
+      <li><a href="#bdvmTab" role="tab"><i class="fas fa-building" title="BDVM"></i></a></li>
       <li><a href="#locoControlTab" role="tab"><i class="fas fa-gamepad" title="Loco Control"></i></a></li>
       <li><a href="#settingsTab" role="tab"><i class="fas fa-cog" title="Settings"></i></a></li>
     </ul>
@@ -40,6 +45,7 @@
       </table>
     </div>
     <div class="leaflet-sidebar-pane" id="locoControlTab">
+      <p id="locoCommandStatus" role="status"></p>
       <div id="locoControlIndicators">
         <label for="locoControlLocoId">L-</label>
         <select id="locoControlLocoId"></select>
@@ -73,6 +79,48 @@
         </div>
       </div>
     </div>
+    <div class="leaflet-sidebar-pane" id="aiTab">
+      <h2>Trafic AI</h2>
+      <p id="aiStatus">Connexion à AITraffic…</p>
+      <label for="aiSearch">Rechercher un train ou une destination</label>
+      <input id="aiSearch" type="search" placeholder="Train, gare, état…">
+      <p>Bleu pointillé : trajet prévu. Orange continu : réservation effective. Un trajet prévu n’est pas une autorisation de passage.</p>
+      <button id="aiClearSelection" type="button">Toutes les réservations</button>
+      <p id="aiDetail"></p><p id="aiMissingTracks"></p>
+      <div id="aiTrainList"></div>
+    </div>
+    <div class="leaflet-sidebar-pane" id="routeTab">
+      <h2>Préparer un itinéraire</h2>
+      <p>Train → destination → aperçu → aiguillages.</p>
+      <button id="routeRefresh" type="button">Charger / actualiser les trains</button>
+      <label for="routeTrain">1. Train</label>
+      <select id="routeTrain"><option value="">Charger les trains…</option></select>
+      <p id="routeOrigin"></p>
+      <div id="routeAiControls" hidden><button id="routeAiStop" type="button">Arrêter le conducteur AI</button><button id="routeAiResume" type="button">Reprendre son parcours actuel</button></div>
+      <label for="routeDestination">2. Voie de destination</label>
+      <div class="route-input"><input id="routeDestination" list="routeTrackOptions" placeholder="Rechercher une voie…" autocomplete="off"><button id="routePickDestination" type="button">Sur carte</button></div>
+      <label for="routeVia">Passer par (facultatif)</label>
+      <div class="route-input"><input id="routeVia" list="routeTrackOptions" placeholder="Voie de passage…" autocomplete="off"><button id="routePickVia" type="button">Sur carte</button></div>
+      <datalist id="routeTrackOptions"></datalist>
+      <button id="routePreview" type="button">3. Prévisualiser le parcours</button>
+      <p id="routeStatus" role="status" aria-live="polite">Chargez les trains pour commencer.</p>
+      <div id="routeSummary"></div>
+      <ul id="routeConflicts"></ul>
+      <button id="routeApply" type="button" disabled>4. Positionner les aiguillages</button>
+      <p class="route-note">Train immobilisé requis pour modifier le parcours. Joueur : aiguillages positionnés sans réservation globale. AI : destination affectée au conducteur actif, qui gère la conduite et les réservations ; sa mission est mise à jour. Respectez les signaux.</p>
+      <h3>Itinéraires récents</h3><div id="routeRecent"></div>
+    </div>
+    <div class="leaflet-sidebar-pane" id="multiplayerTab">
+      <h2>Multiplayer</h2><p id="multiplayerStatus">Connexion…</p>
+      <p>Utilisez la carte web de l’hôte pour dispatcher. Les cartes lancées chez les clients servent à consulter le réseau. Les commandes de locomotive sont refusées si un joueur occupe le train ou détient ses commandes.</p>
+      <div id="multiplayerPlayers"></div>
+    </div>
+    <div class="leaflet-sidebar-pane" id="bdvmTab">
+      <h2>BDVM</h2>
+      <p id="bdvmStatus" role="status" aria-live="polite">Connexion…</p>
+      <button id="bdvmRefresh" type="button">Actualiser</button>
+      <div id="bdvmFinances"></div><div id="bdvmFleet"></div><div id="bdvmMarket"></div><div id="bdvmLeases"></div><div id="bdvmAssignments"></div>
+    </div>
     <div class="leaflet-sidebar-pane" id="settingsTab">
       <table>
         <tr>
@@ -100,6 +148,12 @@
   </div>
 </div>
 <div id="map" class="dark" style="height:100vh"></div>
+<script src="res/motion.js"></script>
+<script src="res/ai-traffic.js"></script>
+<script src="res/route-planner.js"></script>
+<script src="res/multiplayer.js"></script>
+<script src="res/bdvm.js"></script>
+<script src="res/signal-canvas.js"></script>
 <script src="res/main.js"></script>
 </body>
 </html>

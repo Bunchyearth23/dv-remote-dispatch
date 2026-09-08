@@ -112,6 +112,13 @@ namespace DvMod.RemoteDispatch
 
         private static void Stop()
         {
+            InfrastructureData.Reset();
+            RailTracks.Reset();
+            JobData.Reset();
+            RoutePlanner.Reset();
+            AiTrafficCommands.Reset();
+            MultiplayerData.Reset();
+            Junctions.Reset();
             CarUpdater.Stop();
             Updater.Destroy();
             HttpServer.Destroy();

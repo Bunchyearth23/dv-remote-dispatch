@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using UnityEngine;
 
@@ -16,6 +17,8 @@ namespace DvMod.RemoteDispatch
         }
 
         private static GameObject? rootObject;
+
+        public static void RunCoroutine(IEnumerator routine) => rootObject!.GetComponent<Updater>().StartCoroutine(routine);
 
         public static void Create()
         {
@@ -47,25 +50,35 @@ namespace DvMod.RemoteDispatch
 
         private IEnumerator CheckTrainsetsCoro()
         {
+            var interval = new WaitForSecondsRealtime(0.1f);
+            var moving = new HashSet<int>();
             while (true)
             {
                 foreach (var trainset in Trainset.allSets)
                 {
-                    if (!trainset.firstCar.isStationary)
+                    if (trainset.firstCar != null && !trainset.firstCar.isStationary)
                     {
+                        moving.Add(trainset.id);
                         CarUpdater.MarkTrainsetAsDirty(trainset);
                     }
+                    else if (moving.Remove(trainset.id))
+                        CarUpdater.MarkTrainsetAsDirty(trainset); // Publish the final stopping position too.
                 }
-                yield return null;
+                yield return interval;
             }
         }
 
         private IEnumerator DeferredEventsCoro()
         {
+            var frameBudget = new System.Diagnostics.Stopwatch();
             while (true)
             {
+                frameBudget.Restart();
                 while (taskQueue.TryDequeue(out var action))
+                {
                     action();
+                    if (frameBudget.Elapsed.TotalMilliseconds >= 2) break;
+                }
                 yield return null;
             }
         }
@@ -74,7 +87,7 @@ namespace DvMod.RemoteDispatch
 
         public static Task RunOnMainThread(Action action)
         {
-            var tcs = new TaskCompletionSource<bool>();
+            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             taskQueue.Enqueue(() =>
             {
                 try
@@ -92,7 +105,7 @@ namespace DvMod.RemoteDispatch
 
         public static Task<T> RunOnMainThread<T>(Func<T> func)
         {
-            var tcs = new TaskCompletionSource<T>();
+            var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
             taskQueue.Enqueue(() =>
             {
                 try

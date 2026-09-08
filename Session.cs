@@ -34,24 +34,25 @@ namespace DvMod.RemoteDispatch
 
         public static HashSet<string> GetUsersWithActiveSessions()
         {
-            return new HashSet<string>(allSessions.Values.Select(s => s.username));
+            lock (allSesssionsLock)
+                return new HashSet<string>(allSessions.Values.Select(s => s.username));
         }
 
         public static void AddTag(string tag)
         {
             lock (allSesssionsLock)
             {
-                List<string> timedOutSessions = new List<string>();
+                List<string>? timedOutSessions = null;
                 foreach (var kvp in allSessions)
                 {
                     var sessionId = kvp.Key;
                     var session = kvp.Value;
                     if (session.timeSinceLastFetch.Elapsed > SessionTimeout)
-                        timedOutSessions.Add(sessionId);
+                        (timedOutSessions ??= new List<string>()).Add(sessionId);
                     else
                         session.pendingTags.Add(tag);
                 }
-                foreach (var sessionId in timedOutSessions)
+                if (timedOutSessions != null) foreach (var sessionId in timedOutSessions)
                 {
                     Main.DebugLog(() => $"Session {sessionId} timed out");
                     allSessions.Remove(sessionId);
@@ -113,8 +114,8 @@ namespace DvMod.RemoteDispatch
             return tag switch
             {
                 "cars" => JObject.FromObject(CarData.GetAllCarData().ToDictionary(kvp => kvp.Key, kvp => kvp.Value.ToJson())),
-                "jobs" => JObject.FromObject(JobData.GetAllJobData()),
-                "junctions" => new JArray(Junctions.GetAllJunctionStates()),
+                "jobs" => Updater.RunOnMainThread(() => JObject.FromObject(JobData.GetAllJobData())).Result,
+                "junctions" => Updater.RunOnMainThread(() => new JArray(Junctions.GetAllJunctionStates())).Result,
                 "player" => PlayerData.GetPlayerData(),
                 _ when tag.Contains('-') => GetUpdateForSplitTag(tag),
                 _ => throw new NotImplementedException($"Unexpected update tag {tag}"),

@@ -13,7 +13,9 @@ namespace DvMod.RemoteDispatch
 {
     public static class JobData
     {
-        private static readonly Dictionary<TrainCar, string> jobIdForCar = InitializeJobIdForCar();
+        private static readonly Dictionary<TrainCar, string> jobIdForCar = new Dictionary<TrainCar, string>();
+        private static bool initialized;
+        public static void Reset() { initialized = false; jobIdForCar.Clear(); jobForId.Clear(); }
         private static Dictionary<string, Job> jobForId = new Dictionary<string, Job>();
 
         private const JobLicenses LicensesToExport =
@@ -23,6 +25,7 @@ namespace DvMod.RemoteDispatch
 
         public static string? JobIdForCar(TrainCar car)
         {
+            if (!initialized) InitializeJobIdForCar();
             jobIdForCar.TryGetValue(car, out var jobId);
             return jobId;
         }
@@ -35,18 +38,30 @@ namespace DvMod.RemoteDispatch
             return JobForId(jobId);
         }
 
-        private static Dictionary<TrainCar, string> InitializeJobIdForCar()
+        private static void InitializeJobIdForCar()
         {
-            return SingletonBehaviour<JobsManager>.Instance.jobToJobCars
-                .SelectMany(kvp => kvp.Value.Select(car => (trainCar: car.TrainCar(), job: kvp.Key)))
-                .ToDictionary(p => p.trainCar, p => p.job.ID);
+            var manager = SingletonBehaviour<JobsManager>.Instance;
+            if (manager == null) return;
+            foreach (var pair in manager.jobToJobCars)
+            {
+                if (pair.Key == null || pair.Value == null) continue;
+                foreach (var car in pair.Value)
+                {
+                    var train = car?.TrainCar();
+                    if (train != null) jobIdForCar[train] = pair.Key.ID;
+                }
+            }
+            initialized = true;
         }
 
         public static Job? JobForId(string jobId)
         {
             if (jobForId.TryGetValue(jobId, out var job))
                 return job;
-            jobForId = SingletonBehaviour<JobsManager>.Instance.jobToJobCars.Keys.ToDictionary(job => job.ID);
+            jobForId = SingletonBehaviour<JobsManager>.Instance.jobToJobCars.Keys
+                .Where(j => j != null && !string.IsNullOrEmpty(j.ID)).GroupBy(j => j.ID).ToDictionary(g => g.Key, g => g.First());
+            foreach (var definition in YardMasterDefinitions())
+                if (definition.job != null) jobForId[definition.job.ID] = definition.job;
             jobForId.TryGetValue(jobId, out job);
             return job;
         }
@@ -119,18 +134,30 @@ namespace DvMod.RemoteDispatch
                     .Where(v => (job.requiredLicenses & LicensesToExport & v) != JobLicenses.Basic)
                     .Select(v => Enum.GetName(typeof(JobLicenses), v))
             );
-            static float TotalLength(TaskData task) => task.cars.Sum(car => car.length);
-            static float TotalMass(TaskData task) => task.cars.Sum(car => car.carType.parentType.mass)
+            static float TotalLength(TaskData task) => task.cars?.Sum(car => car.length) ?? 0;
+            static float TotalMass(TaskData task) => (task.cars?.Sum(car => car.carType.parentType.mass) ?? 0)
                 + ((task.cargoTypePerCar == null)
                 ? 0f
-                : task.cars.Zip(task.cargoTypePerCar, (car, cargoType) => car.capacity * cargoType.ToV2().massPerUnit).Sum());
+                : (task.cars ?? new List<Car>()).Zip(task.cargoTypePerCar, (car, cargoType) => car.capacity * cargoType.ToV2().massPerUnit).Sum());
 
             static JObject JobToJson(Job job)
             {
                 IEnumerable<JObject> taskJson;
                 TaskData mainTask;
+                var warehouses = job.tasks.OfType<WarehouseTask>().ToArray();
+                bool directHaul = (int)job.jobType == 5 && warehouses.Length == 2;
 
-                if (job.jobType <= JobType.ComplexTransport)
+                if (directHaul)
+                {
+                    // SelfShunt 1.0.0: two WarehouseTasks, no TransportTask or
+                    // passenger sequence. Cars are assigned only at loading time.
+                    mainTask = warehouses[0].GetTaskData();
+                    taskJson = new[] { new JObject(
+                        new JProperty("startTrack", warehouses[0].warehouseMachine.WarehouseTrack.ID.FullDisplayID),
+                        new JProperty("destinationTrack", warehouses[1].warehouseMachine.WarehouseTrack.ID.FullDisplayID),
+                        new JProperty("cars", new JArray((mainTask.cars ?? new List<Car>()).Select(c => c.ID)))) };
+                }
+                else if (job.jobType <= JobType.ComplexTransport)
                 {
                     // normal job
                     var flattenedTasks = FlattenMany(job.tasks.Select(task => task.GetTaskData())).ToArray();
@@ -150,6 +177,8 @@ namespace DvMod.RemoteDispatch
                     new JProperty("originYardId", job.chainData.chainOriginYardId),
                     new JProperty("destinationYardId", job.chainData.chainDestinationYardId),
                     new JProperty("tasks", taskJson),
+                    new JProperty("yardMaster", directHaul),
+                    new JProperty("carsAssigned", mainTask.cars?.Count > 0),
                     new JProperty("requiredLicenses", RequiredLicenses(job)),
                     new JProperty("length", TotalLength(mainTask)),
                     new JProperty("mass", TotalMass(mainTask) / 1000),
@@ -159,9 +188,31 @@ namespace DvMod.RemoteDispatch
 
             // ensure cache is updated
             JobForId("");
-            return jobForId.ToDictionary(
-                kvp => kvp.Key,
-                kvp => JobToJson(kvp.Value));
+            var result = new Dictionary<string, JObject>();
+            foreach (var pair in jobForId)
+            {
+                try { result[pair.Key] = JobToJson(pair.Value); }
+                catch (Exception e)
+                {
+                    // One unsupported job must not break positions or the other jobs.
+                    result[pair.Key] = new JObject(
+                        new JProperty("tasks", new JArray()), new JProperty("requiredLicenses", new JArray()),
+                        new JProperty("length", 0), new JProperty("mass", 0), new JProperty("basePayment", 0),
+                        new JProperty("isActive", pair.Value.State == JobState.InProgress),
+                        new JProperty("error", "Mission non lisible : " + e.GetType().Name));
+                }
+            }
+            return result;
+        }
+
+        private static IEnumerable<StaticJobDefinition> YardMasterDefinitions()
+        {
+            var mod = UnityModManagerNet.UnityModManager.FindMod("SelfShunt");
+            if (mod?.Active != true || mod.Assembly == null) yield break;
+            var field = mod.Assembly.GetType("SelfShunt.StaticDirectJobDefinition")?.GetField("jobDefinitions");
+            if (!(field?.GetValue(null) is System.Collections.IDictionary definitions)) yield break;
+            foreach (var value in definitions.Values)
+                if (value is StaticJobDefinition definition && definition != null) yield return definition;
         }
 
         public static string GetAllJobDataJson()
@@ -171,6 +222,16 @@ namespace DvMod.RemoteDispatch
 
         public static class JobPatches
         {
+            [HarmonyPatch(typeof(TrainCar), nameof(TrainCar.UpdateJobIdOnCarPlates))]
+            public static class CarPlatePatch
+            {
+                public static void Postfix(TrainCar __instance, [HarmonyArgument(0)] string jobId)
+                {
+                    if (string.IsNullOrEmpty(jobId)) jobIdForCar.Remove(__instance);
+                    else jobIdForCar[__instance] = jobId;
+                    Sessions.AddTag("jobs");
+                }
+            }
             [HarmonyPatch(typeof(JobChainController), nameof(JobChainController.UpdateTrainCarPlatesOfCarsOnJob))]
             public static class UpdateTrainCarPlatesOfCarsOnJobPatch
             {
@@ -179,6 +240,7 @@ namespace DvMod.RemoteDispatch
                     foreach (Car car in __instance.carsForJobChain)
                     {
                         var trainCar = car.TrainCar();
+                        if (trainCar == null) continue;
 
                         if (jobId.Length == 0)
                             jobIdForCar.Remove(trainCar);

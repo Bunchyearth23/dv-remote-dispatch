@@ -33,7 +33,9 @@ namespace DvMod.RemoteDispatch
             return delta > -1e-3 && delta < 1e-3;
         }
 
-        public static JObject GetPlayerData()
+        public static JObject GetPlayerData() => Updater.RunOnMainThread(CapturePlayerData).Result;
+
+        private static JObject CapturePlayerData()
         {
             CheckTransform();
             return new JObject(
