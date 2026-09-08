@@ -87,7 +87,8 @@
   async function refresh() {
     try {
       const response = await request('/bdvm', { cache: 'no-store' }); if (!response.ok) throw new Error(`HTTP ${response.status}`); const state = await response.json();
-      status.textContent = `Release ${state.release} — autorité ${state.authorityActor} — transport ${state.transportIdentity}`;
+      const population = state.worldPopulation ? ` — population ${state.worldPopulation.runtimeState}/${state.worldPopulation.ResultCode}` : '';
+      status.textContent = `Release ${state.release} — autorité ${state.authorityActor} — transport ${state.transportIdentity}${population}`;
       document.getElementById('bdvmFinances').innerHTML = '<h3>Finances</h3>' + rows(state.wallets || [], x => `${escape(x.account)} : ${escape(x.Balance)} (v${escape(x.Version)})`);
       document.getElementById('bdvmCompanies').innerHTML = renderCompanies(state);
       document.getElementById('bdvmFleet').innerHTML = renderFleet(state);
