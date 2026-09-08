@@ -8,7 +8,7 @@ Ce fork public est maintenu sur [Bunchyearth23/dv-remote-dispatch](https://githu
 
 Le fork fournit actuellement le host HTTP et le frontend nécessaires à `BDVM.Dispatch`. Il ne contient pas les assemblies BDVM : `BDVM.Dispatch`, `BDVM.Web` et leurs dépendances doivent être installés séparément pour les fonctions BDVM. Remote Dispatch reste utilisable sans BDVM pour ses fonctions upstream et locales qui n’appellent pas le bridge.
 
-Version 1.7.0 : correction du chargement des trains et support des missions Yard Master (`SelfShunt` 1.0.0). Les noms de voie ne sont pas des identifiants uniques : les doublons reçoivent un suffixe de session partagé entre geometry, catalog, route et télémétrie AI. Toutes les voies natives sont conservées ; aucune voie homonyme n’est choisie arbitrairement. Recharger la page après installation ou changement de partie.
+La base d’intégration 1.7.0 a corrigé le chargement des trains et ajouté le support des missions Yard Master. La candidate courante est `1.8.1-bdvm-beta.2` et cible le fork SelfShunt compatible BDVM. Les noms de voie ne sont pas des identifiants uniques : les doublons reçoivent un suffixe de session partagé entre geometry, catalog, route et télémétrie AI. Toutes les voies natives sont conservées ; aucune voie homonyme n’est choisie arbitrairement. Recharger la page après installation ou changement de partie.
 
 Le catalog des locomotives ne construit plus le graph complet et reste consultable lorsque l’adapter AI est indisponible ; les commandes gardent leurs contrôles de réservation. Les missions DirectHaul sont lues comme une paire de tâches de chargement/déchargement. Le tableau indique « À composer » avant l’attribution des wagons, puis suit les associations réellement inscrites sur leurs plaques. Une mission illisible est signalée individuellement. Cette intégration ne recrute pas de conducteur et ne choisit pas les wagons à la place de Yard Master.
 
@@ -25,7 +25,7 @@ Pour diagnostiquer les à-coups, survoler le panneau de statut : il indique le t
 - Rouge : DVSignals interdit le passage. Bleu : DVSignals ne l’interdit pas, mais l’aspect peut imposer des restrictions. Gris : signal éteint ou aspect inconnu. Ces couleurs sont une synthèse logique, pas une reproduction des lampes.
 - Le panneau indique l’heure du snapshot et la disponibilité de DVSignals. Après trois secondes sans données fraîches, les symboles sont atténués et les commandes d’aiguillage sont désactivées. Les lectures reprennent automatiquement après une erreur réseau.
 
-Ouvrir [la carte locale](http://localhost:7245) après chargement d’une partie. Les permissions existantes continuent de s’appliquer ; l’utilisateur configuré localement est `bunchy`. Après changement de carte ou de configuration DoubleTrack, recharger aussi la page pour récupérer toute la géométrie des voies.
+Ouvrir [la carte locale](http://localhost:7245) après chargement d’une partie. Les permissions et credentials sont ceux configurés par l’administrateur du host ; aucun nom d’utilisateur n’est fourni par défaut dans ce repository. Après changement de carte ou de configuration DoubleTrack, recharger aussi la page pour récupérer toute la geometry des voies.
 
 ## Transport Web — 1.8.1
 
@@ -96,7 +96,7 @@ dotnet run --project tests/transport/TransportChecks.csproj -c Release
 dotnet run --project tests/sessions/SessionChecks.csproj -c Release
 ```
 
-Le build utilise les assemblies de l’installation du jeu. Installer `RemoteDispatchLive.dll` et `info.json` dans `Mods/RemoteDispatchLive`. Conserver `Settings.xml`. L’ancienne version doit rester désactivée pour éviter un conflit de port. Sur cette installation, elle est conservée dans `Mods-backup/RemoteDispatch-Original`. Les avertissements NU1701 viennent des packages UnityModManager et Harmony existants.
+Le build utilise les assemblies de l’installation du jeu. Installer `RemoteDispatchLive.dll`, les assets web et `info.json` dans `Mods/RemoteDispatchLive`. Conserver le `Settings.xml` propre au host lors d’un upgrade et ne jamais publier ses credentials. Toute autre installation de Remote Dispatch utilisant le même port doit être désactivée. Les warnings NU1701 viennent des packages UnityModManager et Harmony existants.
 
 Le programme `tests/routes` utilise le runtime .NET 6 installé pour exécuter réellement le patch Harmony 2.2.2 sur les fixtures. Cette ancienne dépendance provoque une erreur CLR sous .NET 10 ; le mod continue de cibler netstandard2.0 et le runtime Unity du jeu. Les quatorze tests frontend et les scénarios backend ne remplacent pas les essais de circulation en partie réelle.
 

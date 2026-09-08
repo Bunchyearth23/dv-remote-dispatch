@@ -6,7 +6,7 @@
   "MultiplayerCompatibility": "Host",
   "AssemblyName": "RemoteDispatchLive.dll",
   "EntryMethod": "DvMod.RemoteDispatch.Main.Load",
-  "LoadAfter": [ "PersistentJobsMod", "SelfShunt", "DoubleTrack", "DVSignals", "AITraffic", "Multiplayer" ],
+  "LoadAfter": [ "SelfShunt", "DoubleTrack", "DVSignals", "AITraffic", "Multiplayer" ],
   "ManagerVersion": "0.27.3",
   "HomePage": "https://www.nexusmods.com/derailvalley/mods/328"
 }
