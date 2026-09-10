@@ -3,5 +3,6 @@
   <ItemGroup>
     <Compile Include="../../TransportSecurity.cs" Link="TransportSecurity.cs" />
     <Compile Include="../../AsyncSet.cs" Link="AsyncSet.cs" />
+    <Compile Include="../../HttpListenerLifecycle.cs" Link="HttpListenerLifecycle.cs" />
   </ItemGroup>
 </Project>

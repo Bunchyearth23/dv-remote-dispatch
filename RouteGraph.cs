@@ -38,7 +38,7 @@ namespace DvMod.RemoteDispatch
         {
             if (!tracks.ContainsKey(origin) || !tracks.ContainsKey(destination) ||
                 (!string.IsNullOrEmpty(via) && !tracks.ContainsKey(via!)))
-                throw new ArgumentException("Voie introuvable. Actualisez le catalogue.");
+                throw new ArgumentException("Track not found. Refresh the catalog.");
             var distances = new Dictionary<(string, bool, bool), double>();
             var previous = new Dictionary<(string, bool, bool), ((string, bool, bool) from, Link link)>();
             var queue = new SortedSet<(double distance, int serial, string track, bool direction, bool via)>();
@@ -68,9 +68,9 @@ namespace DvMod.RemoteDispatch
                     result.steps.Add(new Step { track = key.Item1, forward = key.Item2 });
                     result.steps.Reverse();
                     if (result.steps.Select(s => s.track).Distinct().Count() != result.steps.Count)
-                        throw new ArgumentException("Ce parcours repasse par une voie : préparez plusieurs étapes de manœuvre.");
+                        throw new ArgumentException("This route visits the same track more than once. Plan multiple shunting steps instead.");
                     if (result.steps.Where(s => s.junction >= 0).GroupBy(s => s.junction).Any(g => g.Select(s => s.branch).Distinct().Count() > 1))
-                        throw new ArgumentException("Ce parcours exige deux positions du même aiguillage. Préparez plusieurs étapes.");
+                        throw new ArgumentException("This route requires two positions of the same switch. Plan multiple steps instead.");
                     return result;
                 }
                 foreach (var link in item.direction ? tracks[item.track].forward : tracks[item.track].backward)
@@ -84,7 +84,7 @@ namespace DvMod.RemoteDispatch
                     queue.Add((cost, serial++, next.Item1, next.Item2, next.Item3));
                 }
             }
-            throw new ArgumentException("Aucun parcours continu dans ce sens. Essayez l’autre sens ou une autre voie de passage.");
+            throw new ArgumentException("No continuous route exists in this direction. Try the opposite direction or another intermediate track.");
         }
     }
 }

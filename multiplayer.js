@@ -7,11 +7,11 @@ class MultiplayerView {
     this.list = document.getElementById('multiplayerPlayers');
   }
   update(state) {
-    const labels = { unavailable:'Multiplayer non installé ou désactivé', initializing:'Initialisation multiplayer', disconnected:'Multiplayer déconnecté',
-      singleplayer:'Partie solo', host:'Hôte multiplayer', client:'Client multiplayer — commandes sur la carte de l’hôte',
-      dedicated:'Serveur dédié — consultation', incompatible:'API multiplayer incompatible', 'world-unavailable':'Partie non chargée' };
+    const labels = { unavailable:'Multiplayer is not installed or is disabled', initializing:'Multiplayer is initializing', disconnected:'Multiplayer is disconnected',
+      singleplayer:'Single-player session', host:'Multiplayer host', client:'Multiplayer client — use the host map for commands',
+      dedicated:'Dedicated server — read-only view', incompatible:'Incompatible Multiplayer API', 'world-unavailable':'World is not loaded' };
     const players = Array.isArray(state?.players) ? state.players : [];
-    this.status.textContent = `${labels[state?.status] || 'État multiplayer indisponible'} · ${players.length} autre${players.length > 1 ? 's' : ''} joueur${players.length > 1 ? 's' : ''}`;
+    this.status.textContent = `${labels[state?.status] || 'Multiplayer status unavailable'} · ${players.length} other player${players.length === 1 ? '' : 's'}`;
     this.players = new Map(players.map(p => [p.id,p]));
     for (const [id,marker] of this.markers) if (!this.players.has(id)) {
       this.removeMotion(marker); this.layer.removeLayer(marker); this.markers.delete(id);

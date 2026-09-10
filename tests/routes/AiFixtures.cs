@@ -132,11 +132,11 @@ static class AiCommandChecks
         var native=new List<RailTrack>{a,b};
         Check(AiTrafficCommands.BlockReason(car,native)==null,"Valid AI route rejected");
         mod.Info.Version="9.9";Check(AiTrafficCommands.BlockReason(car,native)!.Contains("version"),"Unknown version accepted");mod.Info.Version="0.2.1";
-        b.curve.length=20;Check(AiTrafficCommands.BlockReason(car,native)!.Contains("courte"),"Short arrival accepted");b.curve.length=500;
-        StationController.allStations.Clear();Check(AiTrafficCommands.BlockReason(car,native)!.Contains("gare"),"Worker sent outside station");StationController.allStations.Add(station);
-        Refuses(()=>AiTrafficCommands.Assign(car,native,preview,new object()),"conducteur a changé");
+        b.curve.length=20;Check(AiTrafficCommands.BlockReason(car,native)!.Contains("too short"),"Short arrival accepted");b.curve.length=500;
+        StationController.allStations.Clear();Check(AiTrafficCommands.BlockReason(car,native)!.Contains("station track"),"Worker sent outside station");StationController.allStations.Add(station);
+        Refuses(()=>AiTrafficCommands.Assign(car,native,preview,new object()),"driver changed");
         AiTrafficCommands.Control(car,"stop");Check(driver.Held,"Stop not held");AiTrafficCommands.Control(car,"resume");Check(!driver.Held,"Resume failed");
-        Refuses(()=>AiTrafficCommands.Control(car,"delete"),"inconnue");
+        Refuses(()=>AiTrafficCommands.Control(car,"delete"),"Unknown");
         AiTrafficCommands.Assign(car,native,preview,driver);
         Check(((AITraffic.Navigation.RailPath)driver.CurrentPath).Tracks.SequenceEqual(native),"Wrong assigned path");
         Check(task.DestinationTrack==b && task.DestinationStation==station && task.HiringFee==100,"Worker task inconsistent or charged");
@@ -147,13 +147,13 @@ static class AiCommandChecks
         var unrelated=new AITraffic.Driver.AIEngineer();Check(unrelated.TryAdoptPlayerAlignedPassingRoute(a),"Unrelated AI behavior changed");
         var previous=driver.CurrentPath;var previousDestination=task.DestinationTrack;
         graph._trackReservations[oldTrack]=driver;graph.FailRelease=true;
-        Refuses(()=>AiTrafficCommands.Assign(car,native,preview,driver),"maintenu au frein");graph.FailRelease=false;
+        Refuses(()=>AiTrafficCommands.Assign(car,native,preview,driver),"remains stopped");graph.FailRelease=false;
         Check(driver.Held&&driver.CurrentPath==previous&&task.DestinationTrack==previousDestination,"Failure did not restore mission and hold brakes");
         Check(!driver.TryAdoptPlayerAlignedPassingRoute(a),"Rollback lost existing dispatch policy");
         var alias=new TrainCar("alias",a);alias.trainset=car.trainset=new Trainset{cars=new(){car,alias}};
         Check(AiTrafficCommands.DrivingCar(alias)==car,"Consist lead not resolved");
         var duplicate=new AITraffic.Driver.AIEngineer{TrainCar=alias};AITraffic.Core.TrafficManager.s_instance.ActiveEngineers.Add(duplicate);
-        Refuses(()=>AiTrafficCommands.DrivingCar(car),"Plusieurs conducteurs");
+        Refuses(()=>AiTrafficCommands.DrivingCar(car),"Multiple AI drivers");
         AITraffic.Core.TrafficManager.s_instance.ActiveEngineers.Remove(duplicate);
         // Exercise the real token/permission service through to the reflection adapter.
         UnityEngine.Object.Tracks=new[]{a,b};TrackIdentity.Reset();a.Out.Add(new Junction.Branch(b,true));b.In.Add(new Junction.Branch(a,false));
@@ -162,12 +162,12 @@ static class AiCommandChecks
         var pending=Program.Await(RoutePlanner.Preview("dispatcher",car.CarGUID,"ai-dest",null));
         var token=(string)pending.GetType().GetProperty("token")!.GetValue(pending)!;
         DvMod.RemoteDispatch.Main.settings.permissions.Allowed=false;
-        Refuses(()=>Program.Await(RoutePlanner.AssignAi("dispatcher",token)),"Permissions");
-        Refuses(()=>Program.Await(RoutePlanner.ControlAi("dispatcher",car.CarGUID,"stop")),"Permission");
+        Refuses(()=>Program.Await(RoutePlanner.AssignAi("dispatcher",token)),"permissions");
+        Refuses(()=>Program.Await(RoutePlanner.ControlAi("dispatcher",car.CarGUID,"stop")),"permission");
         DvMod.RemoteDispatch.Main.settings.permissions.Allowed=true;
-        Refuses(()=>Program.Await(RoutePlanner.AssignAi("other",token)),"expirée");
+        Refuses(()=>Program.Await(RoutePlanner.AssignAi("other",token)),"expired");
         Program.Await(RoutePlanner.AssignAi("dispatcher",token));
-        Refuses(()=>Program.Await(RoutePlanner.AssignAi("dispatcher",token)),"expirée");
+        Refuses(()=>Program.Await(RoutePlanner.AssignAi("dispatcher",token)),"expired");
         task.Status="Arrived";Check(AiTrafficCommands.BlockReason(car,native)!.Contains("active"),"Completed worker reused");
         Console.WriteLine("PASS AI: contract/version, worker destination and fee, route length, stop/resume, engineer identity, actual ownership, occupied reservations, path policy isolation, rollback with brakes, lead resolution, multiple drivers, completed mission.");
     }

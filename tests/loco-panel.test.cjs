@@ -13,7 +13,7 @@ function setup(){
   return{ctx,status,speed,pressure,run:()=>vm.runInContext('updateLocoDisplay()',ctx)};
 }
 test('empty catalog and HTTP failure produce a status, not an unhandled error',async()=>{
-  const t=setup();await t.run();assert.match(t.status.textContent,/Aucune locomotive/);
+  const t=setup();await t.run();assert.match(t.status.textContent,/No controllable locomotive/);
   t.ctx.guid='one';await t.run();assert.match(t.status.textContent,/offline/);
 });
 test('polling cannot overlap and ignores a response for the previous selected locomotive',async()=>{

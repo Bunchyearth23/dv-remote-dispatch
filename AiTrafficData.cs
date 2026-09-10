@@ -53,10 +53,10 @@ namespace DvMod.RemoteDispatch
                     owners[car] = car.CarGUID;
                 }
             var graph = Read(mod.Assembly.GetType("AITraffic.Navigation.RailGraph", true)!, "s_instance");
-            if (graph == null) throw new InvalidOperationException("AITraffic initialise ses réservations. Réessayez ensuite.");
+            if (graph == null) throw new InvalidOperationException("AITraffic is initializing its reservations. Try again shortly.");
             foreach (var entry in CopyRegistry(graph, "_trackReservations"))
                 if (entry.Key is RailTrack track)
-                    result[track] = entry.Value != null && owners.TryGetValue(entry.Value, out var owner) ? owner : "AI inconnue";
+                    result[track] = entry.Value != null && owners.TryGetValue(entry.Value, out var owner) ? owner : "Unknown AI";
             return result;
         }
 
@@ -192,10 +192,10 @@ namespace DvMod.RemoteDispatch
                         if (car == null && requester != null) car = Read(requester, "TrainCar") as TrainCar;
                         if (car != null && allowedOwners.Contains(car.CarGUID)) return null;
                     }
-                    return info != null && !Convert.ToBoolean(Read(info, "IsExpired")) ? "Aiguillage verrouillé par AITraffic" : null;
+                    return info != null && !Convert.ToBoolean(Read(info, "IsExpired")) ? "Switch locked by AITraffic" : null;
                 }
             }
-            catch { return "État du verrou AITraffic indisponible"; }
+            catch { return "AITraffic lock status unavailable"; }
         }
     }
 }

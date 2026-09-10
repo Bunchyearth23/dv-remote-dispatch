@@ -9,8 +9,8 @@ test('selected branch arrow follows geographical north/east, not branch number',
   const junction={routes:[route(0,1),route(1,0)]};
   assert.match(draw(junction,0),/rotate\(0\)/);
   assert.match(draw(junction,1),/rotate\(-90\)/);
-  assert.match(draw(junction,0),/DROITE/);
-  assert.match(draw(junction,1),/GAUCHE/);
+  assert.match(draw(junction,0),/RIGHT/);
+  assert.match(draw(junction,1),/LEFT/);
 });
 test('missing or coincident geometry does not invent a direction',()=>{
   const result=draw({routes:[null,{getLatLngs:()=>[{lat:0,lng:0},{lat:0,lng:0}]}]},1);

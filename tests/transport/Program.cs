@@ -23,6 +23,9 @@ static class Program
         Check(!TransportSecurity.IsSameOrigin("https://localhost:7245", local), "Scheme mismatch accepted");
         Check(!TransportSecurity.IsSameOrigin("http://localhost:7246", local), "Port mismatch accepted");
         Check(!TransportSecurity.IsSameOrigin("http://evil.example", local), "Cross origin accepted");
+        Check(HttpListenerLifecycle.IsExpectedShutdown(false), "Disposed listener shutdown was not recognized");
+        Check(!HttpListenerLifecycle.IsExpectedShutdown(true), "A live listener was mistaken for shutdown");
+        Check(!HttpListenerLifecycle.CaptureUnityContextForAccept, "HTTP accepts must not depend on the Unity focus loop");
 
         var set = new AsyncSet<string>();
         using var cancellation = new CancellationTokenSource();

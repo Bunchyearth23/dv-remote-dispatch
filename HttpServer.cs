@@ -8,6 +8,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System;
 using System.Collections.Concurrent;
+using System.Reflection;
 using System.Threading;
 using UnityEngine;
 
@@ -38,7 +39,10 @@ namespace DvMod.RemoteDispatch
             {
                 try
                 {
-                    var context = await listener.GetContextAsync().ConfigureAwait(true);
+                    // The browser can take focus away from Unity. Keeping the accept
+                    // continuation on Unity's synchronization context would then leave
+                    // an accepted TCP connection unanswered until the game resumes.
+                    var context = await listener.GetContextAsync().ConfigureAwait(HttpListenerLifecycle.CaptureUnityContextForAccept);
                     if (CheckAuthentication(context))
                     {
                         if (!requestSlots.Wait(0))
@@ -69,9 +73,11 @@ namespace DvMod.RemoteDispatch
                         RenderEmpty(context, 401);
                     }
                 }
-                catch (ObjectDisposedException e) when (e.ObjectName == "listener")
+                catch (ObjectDisposedException) when (HttpListenerLifecycle.IsExpectedShutdown(listener.IsListening))
                 {
-                    // ignore when OnDestroy() is called to shutdown the server
+                    // HttpListener reports a runtime-specific ObjectName (for example
+                    // "System.Net.HttpListener"), so shutdown must be identified by
+                    // listener state rather than by that unstable diagnostic string.
                 }
                 catch (HttpListenerException) when (!listener.IsListening)
                 {
@@ -123,6 +129,15 @@ namespace DvMod.RemoteDispatch
 
             switch (request.Url.Segments[1].TrimEnd('/'))
             {
+            case "management":
+                HandleBDVMWebDocument(context);
+                break;
+            case "bdvm-ui":
+                HandleBDVMWebAsset(context);
+                break;
+            case "api":
+                await HandleBDVMWebApi(context).ConfigureAwait(false);
+                break;
             case "route":
                 await HandleRouteRequest(context).ConfigureAwait(false);
                 break;
@@ -175,17 +190,17 @@ namespace DvMod.RemoteDispatch
             context.Response.Headers["Cache-Control"] = "no-store";
             try
             {
-                var request = context.Request; var user = context.User?.Identity?.Name ?? "";
+                var request = context.Request; var user = context.User?.Identity?.Name ?? ""; var isLoopbackRequest = IsLoopbackRequest(context);
                 if (!Main.settings.permissions.HasCompanyPermission(user)) { RenderEmpty(context, 403); return; }
                 string result;
-                if (request.HttpMethod == "GET") result = await Updater.RunOnMainThread(() => BDVMIntegration.GetState(user)).ConfigureAwait(false);
+                if (request.HttpMethod == "GET") result = await Updater.RunOnMainThread(() => BDVMIntegration.GetState(user, isLoopbackRequest)).ConfigureAwait(false);
                 else if (request.HttpMethod == "POST")
                 {
                     if (!(request.ContentType ?? "").StartsWith("application/json", StringComparison.OrdinalIgnoreCase)) { RenderEmpty(context, 415); return; }
                     if (!CheckMutationOrigin(context)) { RenderEmpty(context, 403); return; }
                     if (request.ContentLength64 < 0 || request.ContentLength64 > 4096) { RenderEmpty(context, 413); return; }
                     using var reader = new StreamReader(request.InputStream, Encoding.UTF8); var payload = await reader.ReadToEndAsync().ConfigureAwait(false); JObject.Parse(payload);
-                    result = await Updater.RunOnMainThread(() => BDVMIntegration.SubmitIntent(user, payload)).ConfigureAwait(false);
+                    result = await Updater.RunOnMainThread(() => BDVMIntegration.SubmitIntent(user, payload, isLoopbackRequest)).ConfigureAwait(false);
                 }
                 else { RenderEmpty(context, 405); return; }
                 Render200(context, ContentTypes.Json, result);
@@ -195,6 +210,79 @@ namespace DvMod.RemoteDispatch
                 context.Response.StatusCode = exception is UnauthorizedAccessException ? 403 : exception is ArgumentException || exception is JsonException ? 400 : 409;
                 context.Response.ContentType = ContentTypes.Json; var bytes = Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(new { error = exception.Message })); context.Response.ContentLength64 = bytes.Length; await context.Response.OutputStream.WriteAsync(bytes, 0, bytes.Length).ConfigureAwait(false); context.Response.Close();
             }
+        }
+
+        private static bool HasBDVMWebPermission(HttpListenerContext context)
+            => Main.settings.permissions.HasCompanyPermission(context.User?.Identity?.Name ?? "");
+
+        private static bool IsLoopbackRequest(HttpListenerContext context)
+        {
+            var address = context.Request.RemoteEndPoint?.Address;
+            return address != null && (IPAddress.IsLoopback(address) || (address.IsIPv4MappedToIPv6 && IPAddress.IsLoopback(address.MapToIPv4())));
+        }
+
+        private static void HandleBDVMWebDocument(HttpListenerContext context)
+        {
+            if (context.Request.HttpMethod != "GET") { RenderEmpty(context, 405); return; }
+            if (!HasBDVMWebPermission(context)) { RenderEmpty(context, 403); return; }
+            try
+            {
+                context.Response.Headers["Cache-Control"] = "no-store";
+                Render200(context, ContentTypes.Html, BDVMIntegration.GetWebAsset(context.User?.Identity?.Name ?? "", "shell.html", IsLoopbackRequest(context)));
+            }
+            catch (Exception exception) { RenderBDVMError(context, exception); }
+        }
+
+        private static void HandleBDVMWebAsset(HttpListenerContext context)
+        {
+            if (context.Request.HttpMethod != "GET") { RenderEmpty(context, 405); return; }
+            if (!HasBDVMWebPermission(context)) { RenderEmpty(context, 403); return; }
+            var segments = context.Request.Url.Segments.Skip(2).Select(value => value.Trim('/')).Where(value => value.Length > 0).ToArray();
+            var key = string.Join("/", segments);
+            if (key.Length == 0 || key.Contains("..") || key.Contains("\\")) { RenderEmpty(context, 404); return; }
+            try
+            {
+                context.Response.Headers["Cache-Control"] = "no-store";
+                Render200(context, ContentTypes.ForExtension(Path.GetExtension(key)), BDVMIntegration.GetWebAsset(context.User?.Identity?.Name ?? "", key, IsLoopbackRequest(context)));
+            }
+            catch (Exception exception) { RenderBDVMError(context, exception); }
+        }
+
+        private static async Task HandleBDVMWebApi(HttpListenerContext context)
+        {
+            if (!HasBDVMWebPermission(context)) { RenderEmpty(context, 403); return; }
+            context.Response.Headers["Cache-Control"] = "no-store";
+            var path = context.Request.Url.AbsolutePath.TrimEnd('/');
+            var user = context.User?.Identity?.Name ?? "";
+            var isLoopbackRequest = IsLoopbackRequest(context);
+            try
+            {
+                string result;
+                if (path == "/api/web/shell" && context.Request.HttpMethod == "GET")
+                    result = BDVMIntegration.GetWebShell(user, isLoopbackRequest);
+                else if (path == "/api/modules/bdvm.management/snapshot" && context.Request.HttpMethod == "GET")
+                    result = await Updater.RunOnMainThread(() => BDVMIntegration.GetManagementState(user, isLoopbackRequest)).ConfigureAwait(false);
+                else if (path == "/api/modules/bdvm.management/intent" && context.Request.HttpMethod == "POST")
+                {
+                    if (!(context.Request.ContentType ?? "").StartsWith("application/json", StringComparison.OrdinalIgnoreCase)) { RenderEmpty(context, 415); return; }
+                    if (!CheckMutationOrigin(context)) { RenderEmpty(context, 403); return; }
+                    if (context.Request.ContentLength64 < 0 || context.Request.ContentLength64 > 4096) { RenderEmpty(context, 413); return; }
+                    using var reader = new StreamReader(context.Request.InputStream, Encoding.UTF8);
+                    var payload = await reader.ReadToEndAsync().ConfigureAwait(false);
+                    JObject.Parse(payload);
+                    result = await Updater.RunOnMainThread(() => BDVMIntegration.SubmitManagementIntent(user, payload, isLoopbackRequest)).ConfigureAwait(false);
+                }
+                else { RenderEmpty(context, 404); return; }
+                Render200(context, ContentTypes.Json, result);
+            }
+            catch (Exception exception) { RenderBDVMError(context, exception); }
+        }
+
+        private static void RenderBDVMError(HttpListenerContext context, Exception exception)
+        {
+            var cause = exception is TargetInvocationException invocation && invocation.InnerException != null ? invocation.InnerException : exception;
+            context.Response.StatusCode = cause is UnauthorizedAccessException ? 403 : cause is ArgumentException || cause is JsonException ? 400 : cause is FileNotFoundException ? 404 : 409;
+            Render200(context, ContentTypes.Json, JsonConvert.SerializeObject(new { error = cause.Message }));
         }
 
         private static async Task HandleRouteRequest(HttpListenerContext context)
@@ -380,6 +468,9 @@ namespace DvMod.RemoteDispatch
 
         private static void RenderResource(HttpListenerContext context, string resourceName)
         {
+            // Dispatch assets are embedded in the mod assembly. Browsers must not
+            // retain a previous release after the DLL is replaced.
+            context.Response.Headers["Cache-Control"] = "no-store";
             var assembly = typeof(HttpServer).Assembly;
             using var stream = assembly.GetManifestResourceStream(typeof(HttpServer), resourceName);
             if (stream == null)

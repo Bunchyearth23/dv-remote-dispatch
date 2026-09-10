@@ -35,7 +35,7 @@ test('preview is read-only, editing invalidates command, explicit apply uses onl
 test('AI uses the assignment endpoint; conflicting plans cannot send a command',async()=>{
   for(const ai of [true,false]){
     const {view,requests,setResult}=setup();
-    setResult({token:'token',origin:'A',destination:'B',tracks:[],switches:[],distance:0,ai,conflicts:ai?[]:['occupée'],expiresAt:Date.now()+60000});
+    setResult({token:'token',origin:'A',destination:'B',tracks:[],switches:[],distance:0,ai,conflicts:ai?[]:['occupied'],expiresAt:Date.now()+60000});
     await view.preview();assert.equal(view.applyButton.disabled,!ai);await view.apply();assert.equal(requests.length,ai?2:1);
     if(ai) assert.equal(requests[1].endpoint,'assign');
   }
@@ -62,6 +62,6 @@ test('off-track clicks retain pick mode and a busy planner ignores selection',()
   const {view}=setup();view.map.latLngToLayerPoint=p=>p;
   view.tracks.set('A',{options:{},getLatLngs:()=>[{x:0,y:0},{x:100,y:0}]});
   view.startPick(view.destination);view.pickAtPoint({x:40,y:20});
-  assert.equal(view.pick,view.destination);assert.match(view.status.textContent,/Aucune voie/);
+  assert.equal(view.pick,view.destination);assert.match(view.status.textContent,/No track/);
   view.busy=true;view.pickAtPoint({x:40,y:0});assert.equal(view.destination.value,'B');
 });

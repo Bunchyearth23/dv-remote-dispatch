@@ -21,9 +21,9 @@ http.createServer((req, res) => {
   if(url.pathname==='/route/preview') {
     let body=''; req.on('data',chunk=>body+=chunk); req.on('end',()=>{const input=JSON.parse(body);json({token:'synthetic',origin:'#A',destination:input.destination,via:input.via,ai:input.train==='mock',tracks:['#A','#B'],switches:[{id:0,branch:1,change:true}],distance:268,conflicts:[],expiresAt:Date.now()+60000});});return;
   }
-  if(url.pathname==='/route/apply') return json({changed:1,message:'Simulation uniquement : aucune commande envoyée au jeu.'});
-  if(url.pathname==='/route/assign') return json({changed:0,message:'Simulation : parcours affecté au conducteur AI. Aucune commande envoyée au jeu.'});
-  if(url.pathname==='/route/control-ai') return json({message:'Simulation : commande conducteur reçue. Aucune commande envoyée au jeu.'});
+  if(url.pathname==='/route/apply') return json({changed:1,message:'Simulation only: no command was sent to the game.'});
+  if(url.pathname==='/route/assign') return json({changed:0,message:'Simulation: route assigned to the AI driver. No command was sent to the game.'});
+  if(url.pathname==='/route/control-ai') return json({message:'Simulation: driver command received. No command was sent to the game.'});
   if(url.pathname==='/junction') return json(junctions);
   if(url.pathname==='/player') return json(player);
   if(url.pathname.startsWith('/updates/')) {
@@ -36,7 +36,7 @@ http.createServer((req, res) => {
     const jobs = {'HB-DH-01':job,'HB-DH-02':{...job,isActive:false,carsAssigned:false,tasks:[{startTrack:'#A',destinationTrack:'#B',cars:[]}]}};
     return json(first || updates%10===0 ? {cars,...(first?{jobs}:{}),player} : {'trainset-1':cars,player});
   }
-  if(url.pathname==='/infrastructure') return json({worldLoaded:true,sampledAt:Date.now(),multiplayer:{status:'host',canCommand:true,players:[{id:'mp-1',name:'Conducteur test',crew:'Harbor',position:[0.075,0.075],rotation:0,car:'L-002'}]},aiTraffic,junctions,signalsStatus:'ready',signals:Array.from({length:1842},(_,id)=>({id,name:'TEST '+id,position:[0.074+(id%43)*0.00005,0.074+Math.floor(id/43)*0.00005],heading:0,aspect:'Stop',disallowPassing:true,isOff:false,operation:'Automatic'}))});
+  if(url.pathname==='/infrastructure') return json({worldLoaded:true,sampledAt:Date.now(),multiplayer:{status:'host',canCommand:true,players:[{id:'mp-1',name:'Test driver',crew:'Harbor',position:[0.075,0.075],rotation:0,car:'L-002'}]},aiTraffic,junctions,signalsStatus:'ready',signals:Array.from({length:1842},(_,id)=>({id,name:'TEST '+id,position:[0.074+(id%43)*0.00005,0.074+Math.floor(id/43)*0.00005],heading:0,aspect:'Stop',disallowPassing:true,isOff:false,operation:'Automatic'}))});
   if (url.pathname === '/performance-probe.js') {res.setHeader('Content-Type','text/javascript');res.end(fs.readFileSync(path.join(__dirname,'performance-probe.js')));return;}
   const baseline = url.pathname.startsWith('/baseline/');
   const assetPath = baseline ? url.pathname.slice('/baseline'.length) : url.pathname;

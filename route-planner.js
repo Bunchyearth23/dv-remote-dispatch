@@ -50,10 +50,10 @@ class RoutePlannerView {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), cache: 'no-store', signal: controller.signal
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Commande refusée (' + response.status + ').');
+    if (!response.ok) throw new Error(data.error || 'Command refused (' + response.status + ').');
     return data;
     } catch (e) {
-      if (e.name === 'AbortError') throw new Error('Le serveur ne répond pas. Vérifiez que la partie est chargée puis réessayez.');
+      if (e.name === 'AbortError') throw new Error('The server is not responding. Make sure the world is loaded, then try again.');
       throw e;
     } finally { clearTimeout(timeout); }
   }
@@ -65,7 +65,7 @@ class RoutePlannerView {
     this.layer.clearLayers();
     document.getElementById('routeSummary').replaceChildren();
     document.getElementById('routeConflicts').replaceChildren();
-    this.status.textContent = 'Prévisualisez pour recalculer le parcours et ses conflits.';
+    this.status.textContent = 'Preview again to recalculate the route and its conflicts.';
   }
   setBusy(value) {
     this.busy = value;
@@ -78,13 +78,13 @@ class RoutePlannerView {
     this.stopPick();
     this.invalidate();
     this.setBusy(true);
-    this.status.textContent = 'Chargement des locomotives…';
+    this.status.textContent = 'Loading locomotives…';
     const selected = this.train.value;
     try {
       this.catalog = await this.request('catalog');
-      this.train.replaceChildren(new Option('Sélectionner un train…', ''));
+      this.train.replaceChildren(new Option('Select a train…', ''));
       for (const train of this.catalog.trains)
-        this.train.add(new Option(`${train.name} · ${train.ai ? 'AI' : 'Joueur'} · ${train.origin}`, train.id));
+        this.train.add(new Option(`${train.name} · ${train.ai ? 'AI' : 'Player'} · ${train.origin}`, train.id));
       if (this.catalog.trains.some(t => t.id === selected)) this.train.value = selected;
       const options = document.getElementById('routeTrackOptions');
       options.replaceChildren();
@@ -92,22 +92,22 @@ class RoutePlannerView {
       for (const track of this.catalog.tracks) fragment.append(new Option(`${track.id} · ${track.length} m`, track.id));
       options.append(fragment);
       this.showOrigin();
-      this.status.textContent = `${this.catalog.trains.length} locomotives · ${this.catalog.tracks.length} voies. Choisissez le train puis la destination.${this.catalog.warning ? ' ' + this.catalog.warning : ''}`;
+      this.status.textContent = `${this.catalog.trains.length} locomotives · ${this.catalog.tracks.length} tracks. Select the train, then its destination.${this.catalog.warning ? ' ' + this.catalog.warning : ''}`;
     } catch (e) { this.status.textContent = e.message; }
     finally { this.setBusy(false); }
   }
   showOrigin() {
     const train = this.catalog.trains.find(t => t.id === this.train.value);
-    document.getElementById('routeOrigin').textContent = train ? `Départ : ${train.origin} (actualisé lors du calcul).` : '';
+    document.getElementById('routeOrigin').textContent = train ? `Origin: ${train.origin} (refreshed during calculation).` : '';
     document.getElementById('routeAiControls').hidden = !train?.ai;
-    this.applyButton.textContent = train?.ai ? '4. Affecter et démarrer le conducteur AI' : '4. Positionner les aiguillages';
+    this.applyButton.textContent = train?.ai ? '4. Assign and start AI driver' : '4. Set switches';
   }
   startPick(input) {
     if (this.busy) return;
     if (this.pick === input) { this.stopPick(); return; }
     this.pick = input;
     this.map.getContainer().classList.add('route-picking');
-    this.status.textContent = `Cliquez une voie pour ${input === this.via ? 'le passage intermédiaire' : 'la destination'}. Échap pour annuler.`;
+    this.status.textContent = `Click a track to select ${input === this.via ? 'the intermediate waypoint' : 'the destination'}. Press Escape to cancel.`;
   }
   stopPick() {
     this.pick = null;
@@ -119,7 +119,7 @@ class RoutePlannerView {
     this.pick.value = id;
     this.stopPick();
     this.invalidate();
-    this.status.textContent = `Voie ${id} sélectionnée. Prévisualisez le parcours.`;
+    this.status.textContent = `Track ${id} selected. Preview the route.`;
   }
   pickAtPoint(point) {
     if (!this.pick || this.busy) return;
@@ -135,16 +135,16 @@ class RoutePlannerView {
       }
     });
     if(nearest !== null) this.pickTrack(nearest);
-    else this.status.textContent = 'Aucune voie sous le clic. Zoomez et cliquez plus près du rail. Échap pour annuler.';
+    else this.status.textContent = 'No track at this point. Zoom in and click closer to the rail. Press Escape to cancel.';
   }
   async preview() {
     if (this.busy) return;
     this.stopPick();
     this.invalidate();
-    if (!this.train.value || !this.destination.value.trim()) { this.status.textContent = 'Sélectionnez un train et une voie de destination.'; return; }
+    if (!this.train.value || !this.destination.value.trim()) { this.status.textContent = 'Select a train and a destination track.'; return; }
     const revision = this.revision;
     this.setBusy(true);
-    this.status.textContent = 'Calcul du parcours et vérification des conflits…';
+    this.status.textContent = 'Calculating route and checking conflicts…';
     try {
       const plan = await this.request('preview', { train: this.train.value, destination: this.destination.value.trim(), via: this.via.value.trim() });
       if (revision !== this.revision) return;
@@ -160,16 +160,16 @@ class RoutePlannerView {
       if (bounds.isValid()) this.map.fitBounds(bounds.pad(0.15));
       const summary = document.getElementById('routeSummary');
       const description = document.createElement('p');
-      description.textContent = `${plan.origin} → ${plan.destination}${plan.via ? ' via ' + plan.via : ''} · ${(plan.distance / 1000).toFixed(2)} km de voies · ${plan.switches.filter(s => s.change).length} aiguillages à changer.`;
+      description.textContent = `${plan.origin} → ${plan.destination}${plan.via ? ' via ' + plan.via : ''} · ${(plan.distance / 1000).toFixed(2)} km of track · ${plan.switches.filter(s => s.change).length} switches to change.`;
       const direction = document.createElement('p');
-      direction.textContent = plan.tracks.length > 1 ? `Départ vers la voie ${plan.tracks[1]}. Vérifiez ce sens avant de conduire.` : 'Départ et destination sur la même voie.';
+      direction.textContent = plan.tracks.length > 1 ? `Depart toward track ${plan.tracks[1]}. Verify this direction before moving.` : 'Origin and destination are on the same track.';
       summary.replaceChildren(description, direction);
       const conflicts = document.getElementById('routeConflicts');
       for (const reason of plan.conflicts) { const li = document.createElement('li'); li.textContent = reason; conflicts.append(li); }
-      if (missing.length) { const p = document.createElement('p'); p.textContent = `${missing.length} voies absentes du fond de carte. Rechargez la page.`; summary.append(p); }
-      this.applyButton.textContent = plan.ai ? '4. Affecter et démarrer le conducteur AI' : '4. Positionner les aiguillages';
-      this.status.textContent = plan.conflicts.length ? 'Parcours préparé, commande bloquée par les conflits ci-dessous.' : plan.ai ? 'Parcours AI prêt. L’affectation remplacera sa destination et demandera le départ. Préparation valable 60 secondes.' : 'Aucun conflit détecté lors du contrôle. Préparation valable 60 secondes.';
-      this.expiry = setTimeout(() => { this.applyButton.disabled = true; this.status.textContent = 'Préparation expirée. Recalculez avant de commander.'; }, Math.max(0, plan.expiresAt - Date.now()));
+      if (missing.length) { const p = document.createElement('p'); p.textContent = `${missing.length} tracks are missing from the map. Reload the page.`; summary.append(p); }
+      this.applyButton.textContent = plan.ai ? '4. Assign and start AI driver' : '4. Set switches';
+      this.status.textContent = plan.conflicts.length ? 'Route prepared, but the command is blocked by the conflicts below.' : plan.ai ? 'AI route ready. Assignment will replace its destination and request departure. Preview valid for 60 seconds.' : 'No conflicts detected. Preview valid for 60 seconds.';
+      this.expiry = setTimeout(() => { this.applyButton.disabled = true; this.status.textContent = 'Preview expired. Recalculate before issuing the command.'; }, Math.max(0, plan.expiresAt - Date.now()));
       this.recent = [{ destination: plan.destination, via: plan.via || '' }, ...this.recent.filter(r => r.destination !== plan.destination || r.via !== (plan.via || ''))].slice(0, 8);
       try { localStorage.setItem('dispatch.routes.recent', JSON.stringify(this.recent)); } catch (_) { }
       this.renderRecent();
@@ -184,7 +184,7 @@ class RoutePlannerView {
     clearTimeout(this.expiry);
     try {
       const result = await this.request(ai ? 'assign' : 'apply', { token });
-      this.status.textContent = ai ? result.message : `${result.changed} aiguillages modifiés. ${result.message}`;
+      this.status.textContent = ai ? result.message : `${result.changed} switches changed. ${result.message}`;
     } catch (e) { this.status.textContent = e.message; }
     finally { this.plan = null; this.setBusy(false); }
   }

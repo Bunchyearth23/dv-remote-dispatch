@@ -25,6 +25,6 @@ test('multiplayer roster uses safe labels, follows latest positions and reuses u
 });
 test('disconnect and adapter failure remove multiplayer markers and their animation',()=>{
   const {view,removed}=setup();view.update({status:'client',players:[{id:'mp-1',name:'test',position:[1,2]}]});
-  assert.match(view.status.textContent,/Client multiplayer/);
+  assert.match(view.status.textContent,/Multiplayer client/);
   view.update({status:'incompatible'});assert.equal(view.markers.size,0);assert.equal(removed.length,1);assert.equal(view.list.children.length,0);
 });

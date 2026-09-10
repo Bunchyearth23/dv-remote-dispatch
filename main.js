@@ -231,7 +231,7 @@ function jobElem(jobId, jobData) {
   jobIdCell.appendChild(jobLicensesDiv);
   if (jobData.yardMaster || jobData.error) {
     const note = document.createElement('div');
-    note.textContent = jobData.error || (jobData.carsAssigned ? 'Yard Master · wagons affectés' : 'Yard Master · wagons à choisir au chargement');
+    note.textContent = jobData.error || (jobData.carsAssigned ? 'Yard Master · cars assigned' : 'Yard Master · choose cars when loading');
     jobIdCell.appendChild(note);
   }
 
@@ -242,7 +242,7 @@ function jobElem(jobId, jobData) {
   jobMassCell = document.createElement('th');
   jobMassCell.textContent = jobData.yardMaster && !jobData.carsAssigned ? 'Selon wagons' : `${jobData.mass.toFixed(0)} t`;
   jobLengthCell = document.createElement('th');
-  jobLengthCell.textContent = jobData.yardMaster && !jobData.carsAssigned ? 'À composer' : `${jobData.length.toFixed(0)} m`;
+  jobLengthCell.textContent = jobData.yardMaster && !jobData.carsAssigned ? 'To be assembled' : `${jobData.length.toFixed(0)} m`;
   jobPaymentCell = document.createElement('th');
   jobPaymentCell.textContent =
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
@@ -464,13 +464,13 @@ const junctionsReady = tracksReady
 function toggleJunction(junctionId) {
   if (!infrastructureFresh() || !multiplayerCanCommand) return;
   if (aiJunctionLocks.has(junctionId)) {
-    infrastructureStatus.textContent = 'Aiguillage verrouillé par AITraffic';
+    infrastructureStatus.textContent = 'Switch locked by AITraffic';
     return;
   }
   fetch(new URL(`/junction/${junctionId}/toggle`, location), { method: 'POST' })
-  .then(resp => { if (!resp.ok) throw new Error(resp.status === 409 ? 'Verrou AITraffic actif ou indisponible' : `HTTP ${resp.status}`); return resp.json(); })
+  .then(resp => { if (!resp.ok) throw new Error(resp.status === 409 ? 'AITraffic lock active or unavailable' : `HTTP ${resp.status}`); return resp.json(); })
   .then(selectedBranch => updateJunctionOverlay(junctionId, selectedBranch))
-  .catch(err => { infrastructureStatus.textContent = `Commande refusée : ${err.message}`; });
+  .catch(err => { infrastructureStatus.textContent = `Command refused: ${err.message}`; });
 }
 
 const junctionCanvasSize = 30;
@@ -511,7 +511,7 @@ function updateJunctionOverlay(junctionId, selectedBranch) {
     dashArray: index === selectedBranch ? null : '3 7', weight: index === selectedBranch ? 8 : 3
   }));
   const label = document.createElement('span');
-  label.textContent = `J-${junctionId} → ${junction.branches[selectedBranch] ?? 'inconnu'}`;
+  label.textContent = `J-${junctionId} → ${junction.branches[selectedBranch] ?? 'unknown'}`;
   junction.marker.bindTooltip(label);
 }
 
@@ -552,7 +552,7 @@ function createJunctionDirection(junction, selected) {
   const average = directions.reduce((a,d) => d ? {x:a.x+d.x,y:a.y+d.y} : a, {x:0,y:0});
   const cross = average.x*direction.y-average.y*direction.x;
   const side = Math.abs(cross)<0.001 ? 0 : Math.sign(cross);
-  const label = directions.length === 2 && directions.every(Boolean) && side ? (side<0?'GAUCHE':'DROITE') : 'BRANCHE '+(selected+1);
+  const label = directions.length === 2 && directions.every(Boolean) && side ? (side<0?'LEFT':'RIGHT') : 'BRANCH '+(selected+1);
   const angle = Math.atan2(direction.y,direction.x)*180/Math.PI;
   // Shift toward the selected side, keeping the arrow parallel to that rail.
   const offsetX = -direction.y*side*12, offsetY = direction.x*side*12;
@@ -652,7 +652,7 @@ function createPlayerMarker(id, playerData) {
     .addTo(map);
   marker.getBounds = () => L.latLngBounds([marker.getLatLng(), marker.getLatLng()]);
   const label = document.createElement('span');
-  label.textContent = id === 'player' ? 'Vous · joueur local' : id;
+  label.textContent = id === 'player' ? 'You · local player' : id;
   marker.bindTooltip(label, {permanent:true,direction:'right',offset:[20,0],className:'dispatch-player-label'});
   playerMarkers.set(id, marker);
 }
@@ -785,7 +785,7 @@ async function updateLocoDisplay() {
   const guid = getControlledLocoGuid();
   const status = document.getElementById('locoCommandStatus');
   if (!guid) {
-    status.textContent = 'Aucune locomotive contrôlable disponible.';
+    status.textContent = 'No controllable locomotive is available.';
     locoBrakePipeDisplay.textContent = locoSpeedDisplay.textContent = '—';
     return;
   }
@@ -797,7 +797,7 @@ async function updateLocoDisplay() {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const carData = await response.json();
     if (guid !== getControlledLocoGuid()) return;
-    if (status.textContent.startsWith('Lecture indisponible') || status.textContent.startsWith('Aucune locomotive')) status.textContent = '';
+    if (status.textContent.startsWith('Read unavailable') || status.textContent.startsWith('No controllable locomotive')) status.textContent = '';
     locoBrakePipeDisplay.textContent = carData.brakePipe.toFixed(1);
     locoSpeedDisplay.textContent = carData.forwardSpeed.toFixed(0);
     updateLocoTrainBrakeInput(carData);
@@ -805,7 +805,7 @@ async function updateLocoDisplay() {
     updateReverserButtons(carData.reverser);
     updateLocoThrottleInput(carData);
     updateCouplingControls(carData);
-  } catch (error) { status.textContent = `Lecture indisponible : ${error.message}`; }
+  } catch (error) { status.textContent = `Read unavailable: ${error.message}`; }
   finally { clearTimeout(timeout); locoDisplayPending = false; }
 }
 
@@ -824,12 +824,12 @@ sidebar.on("closing", e => {
 
 function sendLocoCommand(command) {
   const status = document.getElementById('locoCommandStatus');
-  if (!multiplayerCanCommand) { status.textContent = 'Commandes indisponibles ici : vérifiez le panneau Multiplayer et la connexion.'; return; }
+  if (!multiplayerCanCommand) { status.textContent = 'Commands are unavailable here. Check the Multiplayer panel and connection.'; return; }
   const guid = getControlledLocoGuid();
   if (guid) {
     fetch(new URL(`/car/${guid}/control?${command}`, location), { method: 'POST' })
-      .then(response => { status.textContent = response.ok ? '' : response.status === 409 ? 'Commande refusée : autorité réseau indisponible ou train occupé.' : `Commande refusée (${response.status}).`; })
-      .catch(() => { status.textContent = 'Connexion perdue ; commande non confirmée.'; });
+      .then(response => { status.textContent = response.ok ? '' : response.status === 409 ? 'Command refused: network authority unavailable or train occupied.' : `Command refused (${response.status}).`; })
+      .catch(() => { status.textContent = 'Connection lost; command was not confirmed.'; });
   }
 }
 
@@ -1105,15 +1105,15 @@ const aiTrafficView = new AiTrafficView({ map, tracks: trackPolyLines, signals: 
     if (!marker.motion) marker.motion = new MotionTrack(550);
     queueMotion(marker, train, render);
   }, removeMotion: marker => movingMarkers.delete(marker) });
-L.control.layers(null, { 'Signaux DVSignals': signalLayer, 'Trains AI': aiTrafficView.layer, 'Réservations / itinéraire AI': aiTrafficView.routes, 'Joueurs multiplayer': multiplayerView.layer }).addTo(map);
+L.control.layers(null, { 'DVSignals': signalLayer, 'AI trains': aiTrafficView.layer, 'AI reservations / routes': aiTrafficView.routes, 'Multiplayer players': multiplayerView.layer }).addTo(map);
 const infrastructureControl = L.control({ position: 'bottomleft' });
 let infrastructureStatus;
 infrastructureControl.onAdd = () => {
   const panel = L.DomUtil.create('div', 'infrastructure-status');
   infrastructureStatus = L.DomUtil.create('div', '', panel);
-  infrastructureStatus.textContent = 'Connexion à l’infrastructure…';
+  infrastructureStatus.textContent = 'Connecting to infrastructure…';
   const legend = L.DomUtil.create('div', 'infrastructure-legend', panel);
-  legend.textContent = 'Rouge : passage interdit • Bleu : passage non interdit • Gris : éteint / inconnu';
+  legend.textContent = 'Red: stop • Blue: proceed • Gray: off / unknown';
   L.DomEvent.disableClickPropagation(panel);
   return panel;
 };
@@ -1127,13 +1127,13 @@ setInterval(() => {
   const stale = !infrastructureFresh();
   document.getElementById('map').classList.toggle('infrastructure-stale', stale);
   document.getElementById('map').classList.toggle('multiplayer-readonly', !multiplayerCanCommand);
-  if (lastInfrastructureUpdate && stale) infrastructureStatus.textContent = 'Données périmées — reconnexion en cours';
+  if (lastInfrastructureUpdate && stale) infrastructureStatus.textContent = 'Stale data — reconnecting';
 }, 500);
 
 function renderInfrastructure(data) {
   if (!data.worldLoaded) {
     infrastructureAvailable = false;
-    infrastructureStatus.textContent = 'En attente du chargement de la partie';
+    infrastructureStatus.textContent = 'Waiting for the world to load';
     signalLayer.clearLayers();
     signalMarkers.clear();
     aiTrafficView.update({status:'world-unavailable'});
@@ -1187,7 +1187,7 @@ function renderInfrastructure(data) {
     } else marker.setLatLng(signal.position).setStyle(style);
     marker.signature = signature;
     const label = document.createElement('div');
-    label.textContent = `${signal.name} · ${signal.isOff ? 'Éteint' : signal.aspect ?? 'Inconnu'} · ${signal.operation}${signal.shunting ? ' · Manœuvre' : ''}`;
+    label.textContent = `${signal.name} · ${signal.isOff ? 'Off' : signal.aspect ?? 'Unknown'} · ${signal.operation}${signal.shunting ? ' · Shunting' : ''}`;
     marker.bindTooltip(label);
   });
   signalMarkers.forEach((marker, id) => {
@@ -1209,13 +1209,13 @@ function renderInfrastructure(data) {
       setJunctionIcon(junction, id);
     }
     const label = document.createElement('span');
-    label.textContent = `J-${id} → ${junction.branches[junction.selectedBranch] ?? '?'}${lock ? ` · Verrou AI : ${owner || 'propriétaire inconnu'}` : ''}`;
+    label.textContent = `J-${id} → ${junction.branches[junction.selectedBranch] ?? '?'}${lock ? ` · AI lock: ${owner || 'unknown owner'}` : ''}`;
     junction.marker.bindTooltip(label);
   });
   lastInfrastructureUpdate = performance.now() - (Number(data.captureWallMs) || 0);
   infrastructureAvailable = true;
   infrastructureStatus.textContent = `${data.junctions.length} jonctions · ${data.signals.length} signaux · ${data.signalsStatus} · ${new Date(data.sampledAt).toLocaleTimeString()}`;
-  infrastructureStatus.title = `Lecture Unity : ${Number(data.captureMainThreadMs || 0).toFixed(2)} ms au total, plus longue tranche : ${Number(data.maxSliceMs || 0).toFixed(2)} ms`;
+  infrastructureStatus.title = `Unity capture: ${Number(data.captureMainThreadMs || 0).toFixed(2)} ms total, longest slice: ${Number(data.maxSliceMs || 0).toFixed(2)} ms`;
 }
 
 async function pollInfrastructure() {
@@ -1228,13 +1228,13 @@ async function pollInfrastructure() {
     renderInfrastructure(await response.json());
   } catch (error) {
     infrastructureAvailable = false;
-    infrastructureStatus.textContent = `Infrastructure indisponible · ${error.message}`;
+    infrastructureStatus.textContent = `Infrastructure unavailable · ${error.message}`;
   } finally {
     clearTimeout(timeout);
     setTimeout(pollInfrastructure, 500);
   }
 }
 junctionsReady.then(pollInfrastructure).catch(() => {
-  infrastructureStatus.textContent = 'Carte indisponible — recharge la page après le chargement de la partie';
+  infrastructureStatus.textContent = 'Map unavailable — reload the page after the world has loaded';
 });
 requestAnimationFrame(animateMarkers);

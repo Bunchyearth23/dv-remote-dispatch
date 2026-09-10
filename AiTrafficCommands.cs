@@ -26,8 +26,8 @@ namespace DvMod.RemoteDispatch
         private static Assembly Assembly()
         {
             var mod = UnityModManager.FindMod("AITraffic");
-            if (mod?.Active != true || mod.Assembly == null) throw new InvalidOperationException("AITraffic est indisponible.");
-            if (mod.Info.Version != "0.2.1") throw new InvalidOperationException("Commandes AI : version AITraffic non prise en charge (0.2.1 requise).");
+            if (mod?.Active != true || mod.Assembly == null) throw new InvalidOperationException("AITraffic is unavailable.");
+            if (mod.Info.Version != "0.2.1") throw new InvalidOperationException("AI commands: unsupported AITraffic version (0.2.1 required).");
             return mod.Assembly;
         }
         public static object? FindEngineer(TrainCar car)
@@ -40,7 +40,7 @@ namespace DvMod.RemoteDispatch
                 var lead = Read(e, "TrainCar") as TrainCar;
                 return lead != null && (lead == car || (car.trainset != null && lead.trainset == car.trainset));
             }).ToList();
-            if (matches.Count > 1) throw new InvalidOperationException("Plusieurs conducteurs AI dans ce train : séparez leurs missions avant de commander.");
+            if (matches.Count > 1) throw new InvalidOperationException("Multiple AI drivers are present in this train. Separate their assignments before issuing commands.");
             return matches.SingleOrDefault();
         }
         public static TrainCar DrivingCar(TrainCar car)
@@ -57,7 +57,7 @@ namespace DvMod.RemoteDispatch
             var tasks = manager == null ? new List<object>() : AiTrafficData.CopyList(Read(manager, "ActiveTasks"));
             var matching = tasks.Where(t => ReferenceEquals(Read(t, "Engineer"), engineer)).ToList();
             if (matching.Count != 1 || Convert.ToString(Read(matching[0], "Status")) != "EnRoute")
-                throw new InvalidOperationException("La mission du conducteur engagé n’est plus active.");
+                throw new InvalidOperationException("The hired driver's assignment is no longer active.");
             return matching[0];
         }
         public static string? BlockReason(TrainCar car, List<RailTrack> tracks)
@@ -65,30 +65,30 @@ namespace DvMod.RemoteDispatch
             try
             {
                 Assembly();
-                var engineer = FindEngineer(car) ?? throw new InvalidOperationException("Aucun conducteur AI actif sur ce train.");
-                if (tracks.Count < 2) throw new InvalidOperationException("Choisissez une autre voie d’arrivée pour le conducteur AI.");
+                var engineer = FindEngineer(car) ?? throw new InvalidOperationException("No active AI driver is assigned to this train.");
+                if (tracks.Count < 2) throw new InvalidOperationException("Choose a different arrival track for the AI driver.");
                 var task = WorkerTask(engineer);
                 if (task != null && Station(tracks.Last()) == null)
-                    throw new InvalidOperationException("Un conducteur engagé doit arriver sur une voie de gare.");
+                    throw new InvalidOperationException("A hired driver must arrive on a station track.");
                 float length = car.trainset?.cars.Sum(c => c.InterCouplerDistance) ?? car.InterCouplerDistance;
                 if (tracks.Last().curve.length < length + 25)
-                    throw new InvalidOperationException($"Voie d’arrivée trop courte pour le train AI ({Math.Ceiling(length + 25)} m requis, marge comprise).");
+                    throw new InvalidOperationException($"The arrival track is too short for the AI train ({Math.Ceiling(length + 25)} m required, including margin).");
                 var graph = Read(Assembly().GetType("AITraffic.Navigation.RailGraph", true)!, "s_instance");
                 if (graph == null || !Convert.ToBoolean(Read(graph, "IsInitialized")))
-                    throw new InvalidOperationException("Le réseau AITraffic n’est pas initialisé.");
+                    throw new InvalidOperationException("The AITraffic network is not initialized.");
                 return null;
             }
-            catch (Exception e) { return "Affectation AI : " + e.Message; }
+            catch (Exception e) { return "AI assignment: " + e.Message; }
         }
         public static object Control(TrainCar car, string action)
         {
             Assembly();
-            var engineer = FindEngineer(car) ?? throw new InvalidOperationException("Aucun conducteur AI actif sur ce train.");
-            if (action != "stop" && action != "resume") throw new ArgumentException("Commande AI inconnue.");
+            var engineer = FindEngineer(car) ?? throw new InvalidOperationException("No active AI driver is assigned to this train.");
+            if (action != "stop" && action != "resume") throw new ArgumentException("Unknown AI command.");
             if (action == "resume" && Read(engineer, "CurrentPath") == null)
-                throw new InvalidOperationException("Aucun parcours actif à reprendre.");
+                throw new InvalidOperationException("There is no active route to resume.");
             Call(engineer, action == "stop" ? "EmergencyStop" : "Resume");
-            return new { message = action == "stop" ? "Freinage AI demandé. Attendez l’immobilisation puis prévisualisez à nouveau." : "Reprise du parcours actuel demandée au conducteur AI." };
+            return new { message = action == "stop" ? "AI braking requested. Wait until the train stops, then preview again." : "The AI driver was asked to resume its current route." };
         }
         // Pre-resolved writes allow contract validation before any game mutation.
         private sealed class Change
@@ -126,19 +126,19 @@ namespace DvMod.RemoteDispatch
             if (reason != null) throw new InvalidOperationException(reason);
             var assembly = Assembly();
             var engineer = FindEngineer(car)!;
-            if (!ReferenceEquals(engineer, expectedEngineer)) throw new InvalidOperationException("Le conducteur a changé. Recalculez le parcours.");
+            if (!ReferenceEquals(engineer, expectedEngineer)) throw new InvalidOperationException("The driver changed. Recalculate the route.");
             var graph = Read(assembly.GetType("AITraffic.Navigation.RailGraph", true)!, "s_instance")!;
             var builder = Activator.CreateInstance(assembly.GetType("AITraffic.Navigation.Pathfinder", true)!, graph)!;
-            var path = Call(builder, "BuildPathFromTracks", tracks) ?? throw new InvalidOperationException("AITraffic refuse ce parcours.");
+            var path = Call(builder, "BuildPathFromTracks", tracks) ?? throw new InvalidOperationException("AITraffic refused this route.");
             if (!Convert.ToBoolean(Read(path, "IsValid")) || !AiTrafficData.CopyList(Read(path, "Tracks")).SequenceEqual(tracks.Cast<object>()))
-                throw new InvalidOperationException("AITraffic ne reconnaît pas toutes les voies du parcours.");
+                throw new InvalidOperationException("AITraffic does not recognize every track in this route.");
             var switches = (IDictionary)Read(path, "JunctionSwitches")!;
             var ordered = RailTrackRegistry.Instance.OrderedJunctions;
             if (switches.Count != preview.steps.Where(s => s.junction >= 0).Select(s => s.junction).Distinct().Count())
-                throw new InvalidOperationException("AITraffic ajoute des aiguillages absents de l’aperçu.");
+                throw new InvalidOperationException("AITraffic added switches that were absent from the preview.");
             foreach (var step in preview.steps.Where(s => s.junction >= 0))
                 if (!switches.Contains(ordered[step.junction]) || Convert.ToByte(switches[ordered[step.junction]]) != step.branch)
-                    throw new InvalidOperationException("Le parcours AITraffic diverge de l’aperçu aux aiguillages.");
+                    throw new InvalidOperationException("The AITraffic route diverges from the preview at one or more switches.");
             var task = WorkerTask(engineer);
             var station = Station(tracks.Last());
             string stationName = station?.stationInfo?.Name ?? tracks.Last().LogicTrack().ID.ToString();
@@ -218,10 +218,10 @@ namespace DvMod.RemoteDispatch
                 dispatched.Remove(engineer);
                 if (previousPolicy != null) dispatched.Add(engineer, previousPolicy);
                 // Never reacquire a released reservation blindly; the stopped driver's sensors rebuild them.
-                throw new InvalidOperationException("Affectation interrompue ; conducteur maintenu au frein. Recalculez avant de reprendre. " + e.GetBaseException().Message);
+                throw new InvalidOperationException("Assignment interrupted; the driver remains stopped. Recalculate before resuming. " + e.GetBaseException().Message);
             }
-            return new { changed = 0, message = "Parcours affecté et reprise AI demandée vers " + stationName +
-                ". AITraffic pilote les aiguillages et les signaux. " + (task == null ? "" : "Mission du conducteur engagé mise à jour, sans nouveau paiement.") };
+            return new { changed = 0, message = "Route assigned and AI departure requested toward " + stationName +
+                ". AITraffic controls switches and signals. " + (task == null ? "" : "The hired driver's assignment was updated without an additional payment.") };
         }
     }
 }

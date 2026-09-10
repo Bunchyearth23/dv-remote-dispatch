@@ -36,7 +36,7 @@ test('AI selection distinguishes planned route from owned reservations without i
   assert.equal(view.routes.items.filter(line=>line.options.dashArray===null).length,1);
   assert.match(view.list.children[0].textContent, /<img onerror=bad\(\)>/);
   assert.equal(view.list.children[0].innerHTML,undefined);
-  assert.match(view.detail.textContent,/Signal : 7 à — m/);
+  assert.match(view.detail.textContent,/Signal: 7 at — m/);
 });
 test('AI disappearance and optional adapter errors clear obsolete routes and selection', () => {
   const {view} = setup(); view.update(snapshot()); view.select('guid');

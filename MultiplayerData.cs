@@ -41,7 +41,7 @@ namespace DvMod.RemoteDispatch
             if (mod?.Active != true || mod.Assembly == null) { result.state.canCommand = true; return result; }
             result.assembly = mod.Assembly;
             apiType ??= AppDomain.CurrentDomain.GetAssemblies().Select(a => a.GetType("MPAPI.MultiplayerAPI")).FirstOrDefault(t => t != null);
-            if (apiType == null) throw new InvalidOperationException("API Multiplayer introuvable.");
+            if (apiType == null) throw new InvalidOperationException("Multiplayer API not found.");
             result.api = Read(apiType, "Instance");
             if (result.api == null) { result.state.status = "initializing"; return result; }
             result.state.version = Convert.ToString(Read(apiType, "MultiplayerVersion"));
@@ -84,14 +84,14 @@ namespace DvMod.RemoteDispatch
             try
             {
                 var c = Current();
-                if (!c.state.canCommand) return "Multiplayer : utilisez la carte de l’hôte connecté pour envoyer les commandes (état : " + c.state.status + ").";
+                if (!c.state.canCommand) return "Multiplayer: use the connected host's map to issue commands (status: " + c.state.status + ").";
                 if (c.state.status == "unavailable") return null;
                 if (junction != null)
                 {
                     var type = c.assembly!.GetType("Multiplayer.Components.Networking.World.NetworkedJunction", true)!;
                     var networked = junction.GetComponent(type);
                     if (networked == null || !Convert.ToBoolean(Read(networked, "initialised")) || Convert.ToUInt16(Read(networked, "NetId")) == 0)
-                        return "Multiplayer : aiguillage non synchronisé. Attendez la fin du chargement.";
+                        return "Multiplayer: switch not synchronized. Wait for loading to finish.";
                 }
                 if (car != null)
                 {
@@ -99,21 +99,21 @@ namespace DvMod.RemoteDispatch
                     foreach (var player in AiTrafficData.CopyList(Read(c.server!, "Players")))
                     {
                         var occupied = Read(player, "OccupiedCar") as TrainCar;
-                        if (occupied != null && cars.Contains(occupied)) return "Multiplayer : un joueur est présent sur ce train. Libérez-le avant la commande distante.";
+                        if (occupied != null && cars.Contains(occupied)) return "Multiplayer: a player is on this train. They must leave it before a remote command can be issued.";
                     }
                     var type = c.assembly!.GetType("Multiplayer.Components.Networking.Train.NetworkedTrainCar", true)!;
                     foreach (var loco in cars.Where(t => t.IsLoco))
                     {
                         var networked = loco.GetComponent(type);
                         if (networked == null || Convert.ToUInt16(Read(networked, "NetId")) == 0 || Read(networked, "simulationFlow") == null)
-                            return "Multiplayer : locomotive pas encore synchronisée.";
+                            return "Multiplayer: locomotive is not synchronized yet.";
                         if (((IDictionary)Read(networked, "portAuthority")!).Count != 0)
-                            return "Multiplayer : commandes de locomotive détenues par un joueur.";
+                            return "Multiplayer: a player currently holds the locomotive controls.";
                     }
                 }
                 return null;
             }
-            catch { return "Multiplayer : état réseau ou autorité indisponible ; commande refusée."; }
+            catch { return "Multiplayer: network status or authority unavailable; command refused."; }
         }
         public static void RequireCommand(TrainCar? car = null, Junction? junction = null)
         {

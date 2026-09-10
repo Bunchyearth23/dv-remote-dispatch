@@ -29,7 +29,7 @@ namespace DvMod.RemoteDispatch
         public static string Id(RailTrack track)
         {
             if (All.TryGetValue(track, out var id)) return id;
-            throw new InvalidOperationException("Le réseau a changé. Rechargez la carte après le chargement de la partie.");
+            throw new InvalidOperationException("The network changed. Reload the map after the world has loaded.");
         }
     }
 }

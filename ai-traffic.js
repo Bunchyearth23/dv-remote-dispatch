@@ -22,7 +22,7 @@
       const ready = this.state.status === 'ready';
       if (!ready) this.state = { ...this.state, trains: [], reservations: [], junctionLocks: [] };
       this.status.textContent = ready
-        ? `${this.state.trains.length} trains · ${this.state.reservations.length} voies réservées · ${this.state.junctionLocks.length} aiguillages verrouillés`
+        ? `${this.state.trains.length} trains · ${this.state.reservations.length} reserved tracks · ${this.state.junctionLocks.length} locked switches`
         : `AITraffic : ${this.state.status}`;
       const seen = new Set();
       this.state.trains.forEach(train => {
@@ -58,7 +58,7 @@
       const trains = this.state.trains.filter(train => [train.carId, train.origin, train.destination, train.state].join(' ').toLowerCase().includes(query));
       const number = value => Number.isFinite(value) ? Math.round(value) : '—';
       const rows = trains.map(train => ({ id: train.id,
-        text: `${train.carId} · ${train.worker ? 'Conducteur engagé' : 'Trafic AI'} · ${train.state}\n${train.origin || '?'} → ${train.destination || '?'} · ${number(train.speedKmh)} / ${number(train.targetSpeedKmh)} km/h` }));
+        text: `${train.carId} · ${train.worker ? 'Hired driver' : 'AI traffic'} · ${train.state}\n${train.origin || '?'} → ${train.destination || '?'} · ${number(train.speedKmh)} / ${number(train.targetSpeedKmh)} km/h` }));
       const signature = JSON.stringify([rows, this.selected]);
       if (signature !== this.listSignature) {
         this.listSignature = signature;
@@ -74,8 +74,8 @@
       }
       const train = this.state.trains.find(train => train.id === this.selected);
       this.detail.textContent = train
-        ? `${train.carId} · Destination : ${train.destinationTrack || '?'} · Distance restante : ${number(train.distanceToDestination)} m · Signal : ${train.signalId ?? '—'} à ${number(train.distanceToSignal)} m`
-        : 'Sélectionne un train pour afficher son itinéraire prévu et ses réservations.';
+        ? `${train.carId} · Destination: ${train.destinationTrack || '?'} · Remaining distance: ${number(train.distanceToDestination)} m · Signal: ${train.signalId ?? '—'} at ${number(train.distanceToSignal)} m`
+        : 'Select a train to display its planned route and reservations.';
     }
     renderRoute() {
       const train = this.state.trains.find(train => train.id === this.selected);
@@ -93,12 +93,12 @@
         return true;
       };
       let missing = 0;
-      new Set(train?.routeTracks || []).forEach(id => { if (!draw(id, '#55bfff', '8 8', `Prévu · ${train.carId} · ${id}`)) missing++; });
+      new Set(train?.routeTracks || []).forEach(id => { if (!draw(id, '#55bfff', '8 8', `Planned · ${train.carId} · ${id}`)) missing++; });
       reserved.forEach(item => {
         const owner = this.state.trains.find(train => train.id === item.ownerId);
-        if (!draw(item.trackId, '#ffb547', null, `Réservé · ${owner?.carId || 'Propriétaire inconnu'} · ${item.trackId}`)) missing++;
+        if (!draw(item.trackId, '#ffb547', null, `Reserved · ${owner?.carId || 'Unknown owner'} · ${item.trackId}`)) missing++;
       });
-      document.getElementById('aiMissingTracks').textContent = missing ? `${missing} voies sans géométrie : recharge la carte après chargement complet du réseau.` : '';
+      document.getElementById('aiMissingTracks').textContent = missing ? `${missing} tracks have no geometry. Reload the map after the network has fully loaded.` : '';
     }
   }
   root.AiTrafficView = AiTrafficView;
