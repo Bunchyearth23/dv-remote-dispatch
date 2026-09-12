@@ -279,6 +279,18 @@ namespace DvMod.RemoteDispatch
                 string result;
                 if (path == "/api/web/shell" && context.Request.HttpMethod == "GET")
                     result = BDVMIntegration.GetWebShell(user, isLoopbackRequest);
+                else if (path == "/api/modules/bdvm.dispatch/snapshot" && context.Request.HttpMethod == "GET")
+                    result = await Updater.RunOnMainThread(() => BDVMIntegration.GetState(user, isLoopbackRequest)).ConfigureAwait(false);
+                else if ((path == "/api/modules/bdvm.dispatch/junction/control" || path == "/api/modules/bdvm.dispatch/route/control") && context.Request.HttpMethod == "POST")
+                {
+                    if (!(context.Request.ContentType ?? "").StartsWith("application/json", StringComparison.OrdinalIgnoreCase)) { RenderEmpty(context, 415); return; }
+                    if (!CheckMutationOrigin(context)) { RenderEmpty(context, 403); return; }
+                    if (context.Request.ContentLength64 < 0 || context.Request.ContentLength64 > 4096) { RenderEmpty(context, 413); return; }
+                    using var reader = new StreamReader(context.Request.InputStream, Encoding.UTF8);
+                    var payload = await reader.ReadToEndAsync().ConfigureAwait(false);
+                    JObject.Parse(payload);
+                    result = await Updater.RunOnMainThread(() => BDVMIntegration.SubmitIntent(user, payload, isLoopbackRequest)).ConfigureAwait(false);
+                }
                 else if (path == "/api/modules/bdvm.management/snapshot" && context.Request.HttpMethod == "GET")
                     result = await GetCachedManagementSnapshot(user, isLoopbackRequest).ConfigureAwait(false);
                 else if (path == "/api/modules/bdvm.management/intent" && context.Request.HttpMethod == "POST")
