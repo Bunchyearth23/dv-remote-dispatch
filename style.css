@@ -225,6 +225,16 @@ body {
  .ai-train-row[aria-pressed="true"] { border: 2px solid #2386b0; }
  #aiMissingTracks { color: #b25f00; }
 #routeTab label { display: block; margin-top: 14px; margin-bottom: 5px; }
+#industryDispatchTab label { display:block; margin-top:12px; margin-bottom:5px; }
+#industryDispatchTab select,#industryDispatchTab input[type=number] { box-sizing:border-box; width:100%; padding:7px; }
+#industryDispatchTab button { padding:7px 10px; margin:6px 0; cursor:pointer; }
+#industryDispatchWagons label { display:block; margin:4px 0; }
+#industryDispatchStatus { white-space:pre-line; font-weight:bold; }
+#rollingStockTags { margin-bottom:16px; padding:12px; border:1px solid #888; border-radius:6px; }
+#rollingStockTags label { display:block; margin-top:8px; }
+#rollingStockTags select { box-sizing:border-box; width:100%; padding:6px; }
+#rollingStockTags button { margin-top:8px; padding:6px 10px; }
+#rollingStockTagStatus { white-space:pre-line; }
 #routeTab select, #routeTab input { box-sizing: border-box; width: 100%; min-width: 0; padding: 7px; }
 #routeTab button { padding: 7px 10px; margin: 4px 0; cursor: pointer; }
 #routeTab button:disabled { opacity: .5; cursor: default; }

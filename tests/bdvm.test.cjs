@@ -29,21 +29,31 @@ test('BDVM HTTP bridge stays permissioned, same-origin and main-thread dispatche
   const bridge = fs.readFileSync(require('node:path').join(root, 'BDVMIntegration.cs'), 'utf8');
   assert.match(server, /HasCompanyPermission/); assert.match(server, /CheckMutationOrigin/); assert.match(server, /TransportSecurity\.IsSameOrigin/); assert.match(server, /RunOnMainThread/); assert.match(server, /ContentLength64 > 4096/);
   assert.match(bridge, /FindMod\("BDVM\.Full"\)/); assert.doesNotMatch(bridge, /FindMod\("BDVM"\)/); assert.match(bridge, /MaximumPayloadBytes = 4096/); assert.doesNotMatch(bridge, /BDVM\.Domain/);
-  assert.match(server, /case "management"/); assert.match(server, /case "bdvm-ui"/); assert.match(server, /\/api\/web\/shell/); assert.match(server, /\/api\/modules\/bdvm\.management\/snapshot/); assert.match(server, /SubmitManagementIntent/);
+  assert.match(server, /case "dispatch"/); assert.match(server, /case "management"/); assert.match(server, /case "bdvm-ui"/); assert.match(server, /RedirectLocation = "\/dispatch"/); assert.match(server, /case "legacy-dispatch"/); assert.match(server, /\/api\/web\/shell/); assert.match(server, /\/api\/modules\/bdvm\.management\/snapshot/); assert.match(server, /SubmitManagementIntent/);
   assert.match(bridge, /GetWebAsset/); assert.match(bridge, /GetManagementState/);
   assert.match(server, /IPAddress\.IsLoopback/); assert.match(server, /isLoopbackRequest/);
   assert.match(bridge, /typeof\(bool\)/);
 });
 
-test('legacy Dispatch page links to the separate full Management application', () => {
+test('legacy Dispatch remains an internal operational surface without Management duplication', () => {
+  const root = require('node:path').resolve(__dirname, '..');
   const html = fs.readFileSync(require('node:path').join(__dirname, '..', 'index.html'), 'utf8');
-  assert.match(html, /href="\/management"/);
-  assert.match(html, /Open the full BDVM Management interface/);
+  assert.doesNotMatch(html, /bdvmTab|href="\/management"|res\/bdvm\.js/);
+  const bootstrap = fs.readFileSync(require('node:path').join(root, '..', 'dv-company', 'src', 'BDVM.Web', 'Assets', 'bootstrap.js'), 'utf8');
+  assert.match(bootstrap, /path==='\/dispatch'/);
+  assert.match(bootstrap, /frame\.src='\/legacy-dispatch'/);
+  const industry = fs.readFileSync(require('node:path').join(root, 'industrial-dispatch.js'), 'utf8');
+  assert.match(html, /industryDispatchTab/); assert.match(html, /empty or already loaded wagons tagged for the origin industry and cargo/);
+  assert.match(industry, /operation:'start-manual'/); assert.match(industry, /originFacilityId/); assert.match(industry, /sourceFacilityId===origin\.value/); assert.match(industry, /tag\.cargoId===cargo\.value/); assert.match(industry, /industrial\?\.routes/); assert.match(industry, /pilotCompanyWagons/); assert.match(industry, /carGuid/); assert.match(industry, /a\[href="#industryDispatchTab"\].*refresh\(true\)/); assert.doesNotMatch(industry, /industryDispatchLifetime/); assert.doesNotMatch(industry, /setInterval\(/); assert.doesNotMatch(industry, /bdvm:dispatch-update/);
+  assert.match(industry, /companyToggle\.disabled=!company/); assert.match(industry, /if\(!company\)companyToggle\.checked=false/);
+  assert.doesNotMatch(industry, /!tag\.loaded/); assert.match(industry, /loadedCargoAmount/);
+  assert.doesNotMatch(html, /id="industryDispatchLifetime"/);
+  assert.doesNotMatch(industry, /\.(?:AssetId|DisplayName|LastKnownLocation|OriginFacilityId|DestinationFacilityId|CargoId|DeliveredQuantity|Quantity|QuotedUnitValue|Version)\b/);
 });
 
 test('browser-facing Remote Dispatch sources contain no banned French UI vocabulary', () => {
   const root = require('node:path').resolve(__dirname, '..');
-  const files = ['index.html', 'main.js', 'ai-traffic.js', 'route-planner.js', 'multiplayer.js', 'bdvm.js', 'AiTrafficData.cs', 'AiTrafficCommands.cs', 'MultiplayerData.cs', 'RoutePlanner.cs', 'RouteGraph.cs', 'TrackIdentity.cs'];
+  const files = ['index.html', 'main.js', 'ai-traffic.js', 'route-planner.js', 'multiplayer.js', 'bdvm.js', 'industrial-dispatch.js', 'AiTrafficData.cs', 'AiTrafficCommands.cs', 'MultiplayerData.cs', 'RoutePlanner.cs', 'RouteGraph.cs', 'TrackIdentity.cs'];
   const banned = /[àâçéèêëîïôùûüœ]|\b(?:aucun|aucune|commande|commandes|conducteur|gare|voie|voies|aiguillage|aiguillages|itinéraire|chargement|partie|réseau|propriétaire|introuvable|refusée|départ|sélection|recharge|vérifiez|choisissez|données|éteint|manœuvre|joueur|hôte|serveur|trafic|connexion|actualiser|indisponible|installé|désactivé|affectation|parcours|préparation|gauche|droite|branche)\b/i;
   for (const file of files) assert.doesNotMatch(fs.readFileSync(require('node:path').join(root, file), 'utf8'), banned, file);
 });

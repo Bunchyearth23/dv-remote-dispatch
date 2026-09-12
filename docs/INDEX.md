@@ -4,6 +4,7 @@ L’index est la source de vérité pour les travaux restants. Les identifiants 
 
 | ID | État | Sujet |
 | --- | --- | --- |
+| D-006 | accepted | Instruction du 12 septembre : le site doit être hébergé par le serveur dédié et son backend porte l'autorité. Le service autonome BDVM démarre localement ; le raccordement de la carte et des commandes RemoteDispatch reste à réaliser, sans utiliser le navigateur comme source des permissions ou résultats. Voir [chantier transversal](../../dv-company/docs/DEDICATED-SERVER.md), BDVM W-031 et Multiplayer W-020. |
 | D-001 | accepted | Lire les données du jeu et de DVSignals installé, sans déduire un aspect depuis la seule position des aiguillages. |
 | D-002 | accepted | Intégrations optionnelles par reflection ; lectures Unity fractionnées, JSON sur worker et cache partagé de 500 ms entre clients. |
 | X-001 | open | Validation en jeu nécessaire avec DoubleTrack 2.1.1, DVSignals 1.1.3 et AITraffic 0.2.1 : comparer aiguillages, signaux, rechargement de partie et reconnexion. |
@@ -28,6 +29,8 @@ L’index est la source de vérité pour les travaux restants. Les identifiants 
 | X-009 | open | Exécuter la campagne `docs/browser-host-client-checklist.md` avec host/client : Basic sur LAN privé, reconnexion, unload/reload, pression concurrente, commandes et refus Multiplayer, état infrastructure, AITraffic et intents BDVM autorisés/refusés. HTTP Basic n’apporte pas de chiffrement ; tunnel ou reverse proxy TLS requis hors LAN de confiance. |
 
 ## Vérification
+
+Incrément tags du 12 septembre 2026 : le snapshot runtime observé expose bien 22 sites, leurs marchandises fournies et les compatibilités wagon. La liste vide venait du frontend qui lisait trois propriétés PascalCase dans un contrat camelCase et associait chaque véhicule au premier tag, celui de la locomotive. Le test utilise maintenant les clés runtime et un premier tag parasite. Candidate `unity-candidate-20260912-dispatch-tag-camelcase-fix` préparé avec 35/35 tests frontend et 21 groupes candidate réussis ; installation attend la fermeture du jeu. Sauvegarde de l'installation active : `../dv-company/artifacts/unity-candidates/unity-candidate-20260912-dispatch-tag-list-filled/backups/activation-20260912-113438`.
 
 RemoteDispatchLive 1.8.1 : build Release, 28 tests frontend, tests transport et sessions, suites backend infrastructure/AI, route/commandes/Multiplayer et Yard Master réussis. L’audit confirme un transport long polling HTTP sans WebSocket. Les checks host/client et effets réels restent suivis par X-009 ; aucun lancement du jeu ni écriture économique directe n’a été effectué.
 

@@ -52,6 +52,7 @@
     <EmbeddedResource Include="route-planner.js"/>
     <EmbeddedResource Include="multiplayer.js"/>
     <EmbeddedResource Include="bdvm.js"/>
+    <EmbeddedResource Include="industrial-dispatch.js"/>
     <EmbeddedResource Include="style.css"/>
   </ItemGroup>
 </Project>

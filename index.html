@@ -22,14 +22,30 @@
       <li><a href="#jobsTab" role="tab"><i class="fas fa-clipboard-list" title="Jobs"></i></a></li>
       <li><a href="#aiTab" role="tab"><i class="fas fa-route" title="AI traffic"></i></a></li>
       <li><a href="#routeTab" role="tab"><i class="fas fa-map-signs" title="Plan a route"></i></a></li>
+      <li><a href="#industryDispatchTab" role="tab"><i class="fas fa-boxes" title="Industrial dossiers"></i></a></li>
       <li><a href="#multiplayerTab" role="tab"><i class="fas fa-users" title="Multiplayer"></i></a></li>
-      <li><a href="#bdvmTab" role="tab"><i class="fas fa-building" title="BDVM"></i></a></li>
       <li><a href="#locoControlTab" role="tab"><i class="fas fa-gamepad" title="Loco Control"></i></a></li>
       <li><a href="#settingsTab" role="tab"><i class="fas fa-cog" title="Settings"></i></a></li>
     </ul>
   </div>
   <div class="leaflet-sidebar-content">
     <div class="leaflet-sidebar-pane" id="carsTab">
+      <section id="rollingStockTags" hidden aria-label="Rolling stock tags">
+        <h3 id="rollingStockTagTitle">Rolling stock tags</h3>
+        <p id="rollingStockTagStatus" role="status" aria-live="polite"></p>
+        <p id="rollingStockTagCurrent"></p>
+        <label for="rollingStockMode">Operating state</label>
+        <select id="rollingStockMode"><option value="Available">Available</option><option value="Stored">Stored</option><option value="Maintenance">Maintenance</option></select>
+        <button id="rollingStockModeSave" type="button">Apply state</button>
+        <fieldset id="rollingStockCargoFields"><legend>Cargo tag</legend>
+          <label for="rollingStockIndustry">Industry</label><select id="rollingStockIndustry"></select>
+          <label for="rollingStockCargo">Compatible supplied cargo</label><select id="rollingStockCargo"></select>
+          <label for="rollingStockLifetime">Tag duration</label>
+          <select id="rollingStockLifetime"><option value="NextLoading">Next loading only</option><option value="UntilEmpty">Until empty</option><option value="Permanent">Permanent</option></select>
+          <button id="rollingStockCargoSave" type="button">Apply cargo tag</button>
+        </fieldset>
+        <button id="rollingStockTagRefresh" type="button">Refresh tags</button>
+      </section>
       <table id="carList">
         <thead>
           <tr><th>ID</th><th>Job</th><th>Dest</th></tr>
@@ -115,19 +131,24 @@
       <p>Use the host's web map for dispatching. Maps opened by clients provide a read-only network view. Locomotive commands are refused when a player occupies the train or holds its controls.</p>
       <div id="multiplayerPlayers"></div>
     </div>
-    <div class="leaflet-sidebar-pane" id="bdvmTab">
-      <h2>BDVM</h2>
-      <p><a href="/management" target="_self">Open the full BDVM Management interface</a></p>
-      <p id="bdvmStatus" role="status" aria-live="polite">Connecting…</p>
-      <button id="bdvmRefresh" type="button">Refresh</button>
-      <div id="bdvmFinances"></div>
-      <div id="bdvmCompanies"></div>
-      <div id="bdvmFleet"></div>
-      <div id="bdvmMarket"></div>
-      <div id="bdvmDeliveries"></div>
-      <div id="bdvmMaintenance"></div>
-      <div id="bdvmLeases"></div>
-      <div id="bdvmAssignments"></div>
+    <div class="leaflet-sidebar-pane" id="industryDispatchTab">
+      <h2>Industrial dossiers</h2>
+      <p>Create a transport dossier from live company stocks with empty or already loaded wagons tagged for the origin industry and cargo. Assign tags from the Cars panel first.</p>
+      <p id="industryDispatchStatus" role="status" aria-live="polite">Connecting to the authoritative economy…</p>
+      <button id="industryDispatchRefresh" type="button">Refresh now</button>
+      <label for="industryDispatchOrigin">Origin company</label>
+      <select id="industryDispatchOrigin"></select>
+      <label for="industryDispatchDestination">Destination company</label>
+      <select id="industryDispatchDestination"></select>
+      <label for="industryDispatchCargo">Cargo</label>
+      <select id="industryDispatchCargo"></select>
+      <label for="industryDispatchQuantity">Planned quantity</label>
+      <input id="industryDispatchQuantity" type="number" min="0.01" step="0.01">
+      <label><input id="industryDispatchCompany" type="checkbox"> Operate and pay my company</label>
+      <p id="industryDispatchOperatorHint"></p>
+      <fieldset><legend>Tagged wagons for this transport</legend><div id="industryDispatchWagons"></div></fieldset>
+      <button id="industryDispatchCreate" type="button">Create dossier and SelfShunt job</button>
+      <h3>Active dossiers</h3><div id="industryDispatchDossiers"></div>
     </div>
     <div class="leaflet-sidebar-pane" id="settingsTab">
       <table>
@@ -160,8 +181,8 @@
 <script src="res/ai-traffic.js"></script>
 <script src="res/route-planner.js"></script>
 <script src="res/multiplayer.js"></script>
-<script src="res/bdvm.js"></script>
 <script src="res/signal-canvas.js"></script>
+<script src="res/industrial-dispatch.js"></script>
 <script src="res/main.js"></script>
 </body>
 </html>

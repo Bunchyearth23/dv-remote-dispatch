@@ -16,10 +16,23 @@ namespace DvMod.RemoteDispatch
 {
     public class HttpServer : MonoBehaviour
     {
+        // Browser rendering must stay on the HTTP worker. The bridge can only be sampled
+        // on Unity's thread, so share a short-lived, principal-scoped snapshot instead of
+        // sampling the game once per browser update.
+        private const int ManagementSnapshotCacheMilliseconds = 5000;
+        private static readonly ConcurrentDictionary<string, ManagementSnapshotCacheEntry> managementSnapshotCache = new ConcurrentDictionary<string, ManagementSnapshotCacheEntry>();
         private static GameObject? rootObject;
         private readonly HttpListener listener = new HttpListener();
         private readonly ConcurrentDictionary<Task, byte> requests = new ConcurrentDictionary<Task, byte>();
         private readonly SemaphoreSlim requestSlots = new SemaphoreSlim(16, 16);
+
+        private sealed class ManagementSnapshotCacheEntry
+        {
+            public readonly object gate = new object();
+            public string? payload;
+            public DateTime refreshedAtUtc;
+            public Task<string>? refresh;
+        }
 
         public async void Start()
         {
@@ -122,15 +135,21 @@ namespace DvMod.RemoteDispatch
             if (request.Url.Segments.Length < 2)
             {
                 if (request.HttpMethod != "GET") { RenderEmpty(context, 405); return; }
-                context.Response.ContentType = ContentTypes.Html;
-                RenderResource(context, "index.html");
+                context.Response.RedirectLocation = "/dispatch";
+                RenderEmpty(context, 302);
                 return;
             }
 
             switch (request.Url.Segments[1].TrimEnd('/'))
             {
+            case "dispatch":
             case "management":
                 HandleBDVMWebDocument(context);
+                break;
+            case "legacy-dispatch":
+                if (request.HttpMethod != "GET") { RenderEmpty(context, 405); return; }
+                context.Response.ContentType = ContentTypes.Html;
+                RenderResource(context, "index.html");
                 break;
             case "bdvm-ui":
                 HandleBDVMWebAsset(context);
@@ -261,7 +280,7 @@ namespace DvMod.RemoteDispatch
                 if (path == "/api/web/shell" && context.Request.HttpMethod == "GET")
                     result = BDVMIntegration.GetWebShell(user, isLoopbackRequest);
                 else if (path == "/api/modules/bdvm.management/snapshot" && context.Request.HttpMethod == "GET")
-                    result = await Updater.RunOnMainThread(() => BDVMIntegration.GetManagementState(user, isLoopbackRequest)).ConfigureAwait(false);
+                    result = await GetCachedManagementSnapshot(user, isLoopbackRequest).ConfigureAwait(false);
                 else if (path == "/api/modules/bdvm.management/intent" && context.Request.HttpMethod == "POST")
                 {
                     if (!(context.Request.ContentType ?? "").StartsWith("application/json", StringComparison.OrdinalIgnoreCase)) { RenderEmpty(context, 415); return; }
@@ -271,12 +290,44 @@ namespace DvMod.RemoteDispatch
                     var payload = await reader.ReadToEndAsync().ConfigureAwait(false);
                     JObject.Parse(payload);
                     result = await Updater.RunOnMainThread(() => BDVMIntegration.SubmitManagementIntent(user, payload, isLoopbackRequest)).ConfigureAwait(false);
+                    InvalidateManagementSnapshot(user, isLoopbackRequest);
                 }
                 else { RenderEmpty(context, 404); return; }
                 Render200(context, ContentTypes.Json, result);
             }
             catch (Exception exception) { RenderBDVMError(context, exception); }
         }
+
+        private static Task<string> GetCachedManagementSnapshot(string user, bool isLoopbackRequest)
+        {
+            var key = user + "\n" + isLoopbackRequest;
+            var entry = managementSnapshotCache.GetOrAdd(key, _ => new ManagementSnapshotCacheEntry());
+            lock (entry.gate)
+            {
+                if (entry.payload != null && (DateTime.UtcNow - entry.refreshedAtUtc).TotalMilliseconds < ManagementSnapshotCacheMilliseconds)
+                    return Task.FromResult(entry.payload);
+                if (entry.refresh != null) return entry.refresh;
+                entry.refresh = RefreshManagementSnapshot(entry, user, isLoopbackRequest);
+                return entry.refresh;
+            }
+        }
+
+        private static async Task<string> RefreshManagementSnapshot(ManagementSnapshotCacheEntry entry, string user, bool isLoopbackRequest)
+        {
+            try
+            {
+                var result = await Updater.RunOnMainThread(() => BDVMIntegration.GetManagementState(user, isLoopbackRequest)).ConfigureAwait(false);
+                lock (entry.gate) { entry.payload = result; entry.refreshedAtUtc = DateTime.UtcNow; }
+                return result;
+            }
+            finally
+            {
+                lock (entry.gate) entry.refresh = null;
+            }
+        }
+
+        private static void InvalidateManagementSnapshot(string user, bool isLoopbackRequest)
+            => managementSnapshotCache.TryRemove(user + "\n" + isLoopbackRequest, out _);
 
         private static void RenderBDVMError(HttpListenerContext context, Exception exception)
         {

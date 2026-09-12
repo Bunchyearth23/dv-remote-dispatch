@@ -569,6 +569,7 @@ function updateAllJunctions(states) {
 
 function followCar(carId, shouldScroll) {
   setMarkerToFollow(carMarkers.get(carId));
+  window.dispatchEvent(new CustomEvent('bdvm:car-selected', { detail: { carId, carGuid: allCarData.get(carId)?.guid } }));
 
   for (const row of carListBody.querySelectorAll('.following'))
     row.classList.remove('following');
@@ -1062,6 +1063,7 @@ function updateOnce() {
         }
       }
     });
+    window.dispatchEvent(new CustomEvent('bdvm:dispatch-update', { detail: { tags: Object.keys(updateData) } }));
   }).finally(() => { clearTimeout(timeout); updateController = undefined; });
 }
 
