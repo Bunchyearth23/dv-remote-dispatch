@@ -36,7 +36,7 @@ namespace DvMod.RemoteDispatch
             lock (gate)
             {
                 if (cached == null || cached.IsFaulted || cached.IsCanceled ||
-                    (cached.IsCompleted && (DateTime.UtcNow - completedAt).TotalMilliseconds >= 500))
+                    (cached.IsCompleted && (DateTime.UtcNow - completedAt).TotalMilliseconds >= 5000))
                     cached = BuildJson();
                 return cached;
             }

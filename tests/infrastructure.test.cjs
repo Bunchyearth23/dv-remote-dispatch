@@ -61,7 +61,7 @@ test('network failures mark infrastructure unavailable and schedule another poll
   await run('pollInfrastructure()');
   assert.equal(run('infrastructureFresh()'), false);
   assert.match(run('infrastructureStatus.textContent'), /offline/);
-  assert.deepEqual(timers, [5000, 500]);
+  assert.deepEqual(timers, [5000, 5000]);
 });
 
 test('culled junctions update their stored icon and AI lock without an attached DOM node', () => {

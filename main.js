@@ -1123,7 +1123,7 @@ infrastructureControl.addTo(map);
 let lastInfrastructureUpdate = 0;
 let infrastructureAvailable = false;
 function infrastructureFresh() {
-  return infrastructureAvailable && performance.now() - lastInfrastructureUpdate < 3000;
+  return infrastructureAvailable && performance.now() - lastInfrastructureUpdate < 8000;
 }
 setInterval(() => {
   const stale = !infrastructureFresh();
@@ -1233,7 +1233,7 @@ async function pollInfrastructure() {
     infrastructureStatus.textContent = `Infrastructure unavailable · ${error.message}`;
   } finally {
     clearTimeout(timeout);
-    setTimeout(pollInfrastructure, 500);
+    setTimeout(pollInfrastructure, 5000);
   }
 }
 junctionsReady.then(pollInfrastructure).catch(() => {

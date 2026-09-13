@@ -8,6 +8,7 @@ using Newtonsoft.Json;
 using System.Collections.Generic;
 using System.Linq;
 using System;
+using System.Threading.Tasks;
 
 namespace DvMod.RemoteDispatch
 {
@@ -215,9 +216,12 @@ namespace DvMod.RemoteDispatch
                 if (value is StaticJobDefinition definition && definition != null) yield return definition;
         }
 
-        public static string GetAllJobDataJson()
+        public static Task<Dictionary<string, JObject>> GetAllJobDataAsync()
+            => Updater.RunOnMainThread(GetAllJobData);
+
+        public static async Task<string> GetAllJobDataJsonAsync()
         {
-            return JsonConvert.SerializeObject(GetAllJobData());
+            return JsonConvert.SerializeObject(await GetAllJobDataAsync().ConfigureAwait(false));
         }
 
         public static class JobPatches

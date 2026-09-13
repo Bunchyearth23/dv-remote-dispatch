@@ -1,6 +1,7 @@
 using System;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using System.Threading.Tasks;
 
 namespace DvMod.RemoteDispatch
 {
@@ -33,7 +34,7 @@ namespace DvMod.RemoteDispatch
             return delta > -1e-3 && delta < 1e-3;
         }
 
-        public static JObject GetPlayerData() => Updater.RunOnMainThread(CapturePlayerData).Result;
+        public static Task<JObject> GetPlayerDataAsync() => Updater.RunOnMainThread(CapturePlayerData);
 
         private static JObject CapturePlayerData()
         {
@@ -47,9 +48,9 @@ namespace DvMod.RemoteDispatch
             );
         }
 
-        public static string GetPlayerDataJson()
+        public static async Task<string> GetPlayerDataJsonAsync()
         {
-            return JsonConvert.SerializeObject(GetPlayerData());
+            return JsonConvert.SerializeObject(await GetPlayerDataAsync().ConfigureAwait(false));
         }
     }
 }

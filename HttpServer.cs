@@ -4,6 +4,7 @@ using System.IO.Compression;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.WebSockets;
 using System.Text;
 using System.Threading.Tasks;
 using System;
@@ -19,7 +20,7 @@ namespace DvMod.RemoteDispatch
         // Browser rendering must stay on the HTTP worker. The bridge can only be sampled
         // on Unity's thread, so share a short-lived, principal-scoped snapshot instead of
         // sampling the game once per browser update.
-        private const int ManagementSnapshotCacheMilliseconds = 5000;
+        private const int ManagementSnapshotCacheMilliseconds = 30000;
         private static readonly ConcurrentDictionary<string, ManagementSnapshotCacheEntry> managementSnapshotCache = new ConcurrentDictionary<string, ManagementSnapshotCacheEntry>();
         private static GameObject? rootObject;
         private readonly HttpListener listener = new HttpListener();
@@ -171,7 +172,7 @@ namespace DvMod.RemoteDispatch
                 await HandleCarRequest(context).ConfigureAwait(false);
                 break;
             case "job":
-                Render200(context, ContentTypes.Json, JobData.GetAllJobDataJson());
+                Render200(context, ContentTypes.Json, await JobData.GetAllJobDataJsonAsync().ConfigureAwait(false));
                 break;
             case "junction":
                 await HandleJunctionRequest(context).ConfigureAwait(false);
@@ -180,7 +181,7 @@ namespace DvMod.RemoteDispatch
                 Render200(context, ContentTypes.Json, await Updater.RunOnMainThread(Junctions.GetJunctionStateJSON).ConfigureAwait(false));
                 break;
             case "player":
-                var playerJson = PlayerData.GetPlayerDataJson();
+                var playerJson = await PlayerData.GetPlayerDataJsonAsync().ConfigureAwait(false);
                 if (playerJson != null)
                     Render200(context, ContentTypes.Json, playerJson);
                 else
@@ -193,10 +194,13 @@ namespace DvMod.RemoteDispatch
                 Render200(context, ContentTypes.Json, await RailTracks.GetTrackPointJSON().ConfigureAwait(false));
                 break;
             case "trainset":
-                HandleTrainsetRequest(context);
+                await HandleTrainsetRequest(context).ConfigureAwait(false);
                 break;
             case "updates":
                 await HandleUpdatesRequest(context).ConfigureAwait(false);
+                break;
+            case "updates-ws":
+                await HandleWebSocketUpdatesRequest(context).ConfigureAwait(false);
                 break;
             default:
                 RenderEmpty(context, 404);
@@ -393,7 +397,7 @@ namespace DvMod.RemoteDispatch
             var segments = context.Request.Url.Segments;
             if (segments.Length == 2 && context.Request.HttpMethod == "GET")
             {
-                var allCarDataJson = CarData.GetAllCarDataJson();
+                var allCarDataJson = await CarData.GetAllCarDataJsonAsync().ConfigureAwait(false);
                 Render200(context, allCarDataJson);
                 return;
             }
@@ -401,7 +405,7 @@ namespace DvMod.RemoteDispatch
             if (segments.Length == 3 && context.Request.HttpMethod == "GET")
             {
                 var carGuid = segments[2].TrimEnd('/');
-                var carDataJson = CarData.GetCarGuidDataJson(carGuid);
+                var carDataJson = await CarData.GetCarGuidDataJsonAsync(carGuid).ConfigureAwait(false);
                 if (carDataJson == null)
                     RenderEmpty(context, 404);
                 else
@@ -444,6 +448,66 @@ namespace DvMod.RemoteDispatch
             if (context.Request.HttpMethod != "GET") { RenderEmpty(context, 405); return; }
             if (!TransportSecurity.IsValidSessionId(sessionId)) { RenderEmpty(context, 400); return; }
             Render200(context, ContentTypes.Json, await Sessions.GetUpdates(username, sessionId).ConfigureAwait(false));
+        }
+
+        private static async Task HandleWebSocketUpdatesRequest(HttpListenerContext context)
+        {
+            if (context.Request.HttpMethod != "GET" || !context.Request.IsWebSocketRequest)
+            {
+                RenderEmpty(context, 400);
+                return;
+            }
+            if (context.Request.Url.Segments.Length < 3)
+            {
+                RenderEmpty(context, 404);
+                return;
+            }
+
+            var username = context.User?.Identity?.Name ?? "";
+            var sessionId = context.Request.Url.Segments[2].TrimEnd('/');
+            if (!TransportSecurity.IsValidSessionId(sessionId))
+            {
+                RenderEmpty(context, 400);
+                return;
+            }
+
+            HttpListenerWebSocketContext accepted;
+            try
+            {
+                accepted = await context.AcceptWebSocketAsync(null).ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                Main.DebugLog(() => $"WebSocket update handshake failed: {exception.Message}");
+                RenderEmpty(context, 400);
+                return;
+            }
+
+            using (var socket = accepted.WebSocket)
+            using (var cancellation = new CancellationTokenSource())
+            {
+                try
+                {
+                    while (socket.State == WebSocketState.Open)
+                    {
+                        var notification = await Sessions.GetUpdateNotifications(username, sessionId, cancellation.Token).ConfigureAwait(false);
+                        if (socket.State != WebSocketState.Open) break;
+                        var bytes = Encoding.UTF8.GetBytes(notification);
+                        await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, cancellation.Token).ConfigureAwait(false);
+                    }
+                }
+                catch (OperationCanceledException) { }
+                catch (WebSocketException) { }
+                finally
+                {
+                    cancellation.Cancel();
+                    if (socket.State == WebSocketState.Open)
+                    {
+                        try { await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "closed", CancellationToken.None).ConfigureAwait(false); }
+                        catch { /* The browser may already have disconnected. */ }
+                    }
+                }
+            }
         }
 
         private static bool IsValidJunctionId(int junctionId)
@@ -490,7 +554,7 @@ namespace DvMod.RemoteDispatch
             }
         }
 
-        public static void HandleTrainsetRequest(HttpListenerContext context)
+        public static async Task HandleTrainsetRequest(HttpListenerContext context)
         {
             var request = context.Request;
             if (request.Url.Segments.Length < 3)
@@ -499,7 +563,7 @@ namespace DvMod.RemoteDispatch
                 return;
             }
             var trainsetId = int.Parse(request.Url.Segments[2]);
-            Render200(context, CarData.GetTrainsetDataJson(trainsetId));
+            Render200(context, await CarData.GetTrainsetDataJsonAsync(trainsetId).ConfigureAwait(false));
         }
 
         public static void Create()

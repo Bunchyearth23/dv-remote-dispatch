@@ -50,7 +50,7 @@ namespace DvMod.RemoteDispatch
             }
         }
 
-        private static async Task<IEnumerable<string>> GetTags(string username, string sessionId)
+        private static async Task<IEnumerable<string>> GetTags(string username, string sessionId, CancellationToken cancellationToken = default)
         {
             Session session;
             string? startedUser = null;
@@ -83,8 +83,11 @@ namespace DvMod.RemoteDispatch
                 return tags;
 
             // No data available
-            var (success, awaitedTag) = await session.pendingTags.TryTakeAsync(TimeSpan.FromSeconds(25), session.cancellation.Token).ConfigureAwait(false);
-            return success ? new string[1] { awaitedTag } : new string[0];
+            using (var linked = CancellationTokenSource.CreateLinkedTokenSource(session.cancellation.Token, cancellationToken))
+            {
+                var (success, awaitedTag) = await session.pendingTags.TryTakeAsync(TimeSpan.FromSeconds(25), linked.Token).ConfigureAwait(false);
+                return success ? new string[1] { awaitedTag } : new string[0];
+            }
         }
 
         private static void RemoveExpiredSessionsLocked()
@@ -109,46 +112,56 @@ namespace DvMod.RemoteDispatch
             foreach (var session in sessions) session.cancellation.Cancel();
         }
 
-        private static JObject? GetUpdateForCarGuid(string carGuid)
+        private static Task<JObject?> GetUpdateForCarGuidAsync(string carGuid)
         {
-            return CarData.GetCarGuidDataJson(carGuid);
+            return CarData.GetCarGuidDataJsonAsync(carGuid);
         }
 
-        private static JObject GetUpdateForTrainset(string trainsetId)
+        private static async Task<JObject> GetUpdateForTrainsetAsync(string trainsetId)
         {
-            return JObject.FromObject(CarData.GetTrainsetData(int.Parse(trainsetId)));
+            return await CarData.GetTrainsetDataJsonAsync(int.Parse(trainsetId)).ConfigureAwait(false);
         }
 
-        private static JToken? GetUpdateForSplitTag(string tag)
+        private static async Task<JToken?> GetUpdateForSplitTagAsync(string tag)
         {
             var index = tag.IndexOf('-');
             var tagType = tag.Substring(0, index);
             var tagId = tag.Substring(index + 1);
             return tagType switch
             {
-                "carguid" => GetUpdateForCarGuid(tagId),
-                "trainset" => GetUpdateForTrainset(tagId),
+                "carguid" => await GetUpdateForCarGuidAsync(tagId).ConfigureAwait(false),
+                "trainset" => await GetUpdateForTrainsetAsync(tagId).ConfigureAwait(false),
                 _ => throw new NotImplementedException($"Unexpected update tag {tag}"),
             };
         }
 
-        private static JToken? GetUpdateForTag(string tag)
+        private static async Task<JToken?> GetUpdateForTagAsync(string tag)
         {
-            return tag switch
+            switch (tag)
             {
-                "cars" => JObject.FromObject(CarData.GetAllCarData().ToDictionary(kvp => kvp.Key, kvp => kvp.Value.ToJson())),
-                "jobs" => Updater.RunOnMainThread(() => JObject.FromObject(JobData.GetAllJobData())).Result,
-                "junctions" => Updater.RunOnMainThread(() => new JArray(Junctions.GetAllJunctionStates())).Result,
-                "player" => PlayerData.GetPlayerData(),
-                _ when tag.Contains('-') => GetUpdateForSplitTag(tag),
-                _ => throw new NotImplementedException($"Unexpected update tag {tag}"),
-            };
+                case "cars": return await CarData.GetAllCarDataJsonAsync().ConfigureAwait(false);
+                case "jobs": return JObject.FromObject(await JobData.GetAllJobDataAsync().ConfigureAwait(false));
+                case "junctions": return new JArray(await Updater.RunOnMainThread(Junctions.GetAllJunctionStates).ConfigureAwait(false));
+                case "player": return await PlayerData.GetPlayerDataAsync().ConfigureAwait(false);
+                default: return tag.Contains('-')
+                    ? await GetUpdateForSplitTagAsync(tag).ConfigureAwait(false)
+                    : throw new NotImplementedException($"Unexpected update tag {tag}");
+            }
         }
 
         public static async Task<string> GetUpdates(string username, string sessionId)
         {
             var tags = await GetTags(username, sessionId).ConfigureAwait(false);
-            return JsonConvert.SerializeObject(tags.ToDictionary(tag => tag, tag => GetUpdateForTag(tag)));
+            var updates = new Dictionary<string, JToken?>(StringComparer.Ordinal);
+            foreach (var tag in tags)
+                updates[tag] = await GetUpdateForTagAsync(tag).ConfigureAwait(false);
+            return JsonConvert.SerializeObject(updates);
+        }
+
+        public static async Task<string> GetUpdateNotifications(string username, string sessionId, CancellationToken cancellationToken)
+        {
+            var tags = await GetTags(username, sessionId, cancellationToken).ConfigureAwait(false);
+            return JsonConvert.SerializeObject(new { tags = tags.ToArray() });
         }
     }
 }

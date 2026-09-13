@@ -4,6 +4,7 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace DvMod.RemoteDispatch
 {
@@ -53,21 +54,22 @@ namespace DvMod.RemoteDispatch
             );
         }
 
-        public static JObject GetAllCarDataJson()
+        public static async Task<JObject> GetAllCarDataJsonAsync()
         {
-            return JObject.FromObject(
-                GetAllCarData().ToDictionary(kvp => kvp.Key, kvp => kvp.Value.ToJson()));
+            var cars = await GetAllCarDataAsync().ConfigureAwait(false);
+            return JObject.FromObject(cars.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.ToJson()));
         }
 
-        public static JObject? GetCarGuidDataJson(string guid)
+        public static async Task<JObject?> GetCarGuidDataJsonAsync(string guid)
         {
-            var (carId, carData) = Updater.RunOnMainThread(() =>
+            var result = await Updater.RunOnMainThread(() =>
             {
                 var car = TrainCarRegistry.Instance.GetTrainCarByCarGuid(guid);
                 if (car == null || !ShouldReturnTrainCar(car))
                     return default;
                 return (car.ID, From(car));
-            }).Result;
+            }).ConfigureAwait(false);
+            var (carId, carData) = result;
             if (carId == default)
                 return null;
             var obj = carData.ToJson();
@@ -75,7 +77,7 @@ namespace DvMod.RemoteDispatch
             return obj;
         }
 
-        public static Dictionary<string, CarData> GetAllCarData()
+        public static Task<Dictionary<string, CarData>> GetAllCarDataAsync()
         {
             return Updater.RunOnMainThread(() =>
             {
@@ -84,12 +86,12 @@ namespace DvMod.RemoteDispatch
                     .Values
                     .Where(ShouldReturnTrainCar)
                     .ToDictionary(car => car.ID, car => From(car));
-            }).Result;
+            });
         }
 
-        public static Dictionary<string, JObject> GetTrainsetData(int id)
+        public static async Task<Dictionary<string, JObject>> GetTrainsetDataAsync(int id)
         {
-            return Updater.RunOnMainThread(() =>
+            var cars = await Updater.RunOnMainThread(() =>
             {
                 var trainset = Trainset.allSets.Find(set => set.id == id);
                 if (trainset == null)
@@ -97,12 +99,13 @@ namespace DvMod.RemoteDispatch
                 return trainset.cars
                     .Where(ShouldReturnTrainCar)
                     .ToDictionary(car => car.ID, car => From(car));
-            }).Result.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.ToJson());
+            }).ConfigureAwait(false);
+            return cars.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.ToJson());
         }
 
-        public static JObject GetTrainsetDataJson(int id)
+        public static async Task<JObject> GetTrainsetDataJsonAsync(int id)
         {
-            return JObject.FromObject(GetTrainsetData(id));
+            return JObject.FromObject(await GetTrainsetDataAsync(id).ConfigureAwait(false));
         }
 
         public static bool ShouldReturnTrainCar(TrainCar trainCar)
