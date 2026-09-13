@@ -1,6 +1,6 @@
 {
   "Id": "RemoteDispatchLive",
-  "DisplayName": "Remote Dispatch Live",
+  "DisplayName": "BDVM Fork - Remote Dispatch Live",
   "Author": "Zeibach",
   "Version": "1.8.1",
   "MultiplayerCompatibility": "Host",
