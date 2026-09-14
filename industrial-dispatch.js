@@ -1,33 +1,43 @@
 (function () {
-  const byId=id=>document.getElementById(id), status=byId('industryDispatchStatus'), origin=byId('industryDispatchOrigin'), destination=byId('industryDispatchDestination'), cargo=byId('industryDispatchCargo'), quantity=byId('industryDispatchQuantity'), wagons=byId('industryDispatchWagons'), dossiers=byId('industryDispatchDossiers');
-  if(!status)return;
-  let state=null,lastSignature='',refreshing=false,lastRefresh=0;
+  'use strict';
   const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const label=(rows,id)=>rows?.find(x=>x.id===id)?.name||id;
-  async function json(url,options={}){const response=await fetch(url,{cache:'no-store',credentials:'same-origin',...options});const body=await response.json();if(!response.ok)throw new Error(body.error||`HTTP ${response.status}`);return body}
-  function option(select,value,text){const item=document.createElement('option');item.value=value;item.textContent=text;select.append(item)}
-  function render(next){state=next;const previous={origin:origin.value,destination:destination.value,cargo:cargo.value};const sites=state.industrial?.sites||[],routes=state.industrial?.routes||[];
-    const companyToggle=byId('industryDispatchCompany'),company=(state.companies||[]).find(item=>(item.members||[]).includes(state.authorityActor));
-    companyToggle.disabled=!company;if(!company)companyToggle.checked=false;
-    byId('industryDispatchOperatorHint').textContent=company?`Personal wagons${companyToggle.checked?' hidden while the company operates.':'; check the box to use company wagons.'}`:'No company membership: this delivery will use and pay your personal fleet.';
-    const originIds=[...new Set(routes.map(route=>route.originFacilityId))].sort();origin.replaceChildren(...originIds.map(id=>{const item=document.createElement('option');item.value=id;item.textContent=label(state.locationChoices,id);return item}));if(originIds.includes(previous.origin))origin.value=previous.origin;
-    const destinationIds=[...new Set(routes.filter(route=>route.originFacilityId===origin.value).map(route=>route.destinationFacilityId))].sort();destination.replaceChildren(...destinationIds.map(id=>{const item=document.createElement('option');item.value=id;item.textContent=label(state.locationChoices,id);return item}));if(destinationIds.includes(previous.destination))destination.value=previous.destination;
-    const route=routes.find(item=>item.originFacilityId===origin.value&&item.destinationFacilityId===destination.value),cargoIds=(route?.cargoIds||[]).slice().sort();cargo.replaceChildren(...cargoIds.map(id=>{const item=document.createElement('option');item.value=id;item.textContent=label(state.cargoChoices,id);return item}));if(cargoIds.includes(previous.cargo))cargo.value=previous.cargo;
-    const operatorWagons=new Set(companyToggle.checked?(state.industrial?.pilotCompanyWagons||[]):(state.industrial?.pilotPersonalWagons||[]));
-    const tags=new Map((state.rollingStockTags||[]).map(tag=>[tag.assetId,tag]));
-    const eligible=(state.fleet||[]).filter(x=>{const tag=tags.get(x.assetId);return x.kind==='FreightWagon'&&x.state==='Available'&&operatorWagons.has(x.assetId)&&tag&&tag.sourceFacilityId===origin.value&&tag.cargoId===cargo.value});
-    wagons.innerHTML=eligible.length?eligible.map(x=>{const tag=tags.get(x.assetId),load=tag.loaded?` · loaded ${esc(tag.loadedCargoAmount||'?')}`:' · empty';return `<label><input type="checkbox" value="${esc(x.assetId)}"> ${esc(x.displayName)}${load} · ${esc(tag.lifetime)} · ID ${esc(x.carGuid||x.assetId)} · ${esc(x.lastKnownLocation||'location unknown')}</label>`}).join(''):'<p>No available wagon has a matching industry and cargo tag. Select a wagon on the map and assign its tag from the Cars panel.</p>';
-    const active=(state.industrial?.contracts||[]).filter(x=>!['Completed','Cancelled','Expired'].includes(x.state));dossiers.innerHTML=active.length?active.map(x=>{const assigned=(x.assignedWagons||[]).map(w=>state.fleet?.find(f=>f.assetId===w.assetId)?.displayName||w.assetId).join(', ');const aboard=(x.manifests||[]).reduce((sum,m)=>sum+Number(m.onBoardQuantity||0),0);return `<p><strong>${esc(x.displayName||x.dossierId)}</strong><br>${esc(label(state.locationChoices,x.originFacilityId))} → ${esc(label(state.locationChoices,x.destinationFacilityId))} · ${esc(label(state.cargoChoices,x.cargoId))}<br>Delivered ${esc(x.deliveredQuantity)}/${esc(x.quantity)} · aboard ${esc(aboard)} · quoted $${esc(x.quotedUnitValue)}/unit<br>Wagons: ${esc(assigned||'none')} · ${esc(x.state)}</p>`}).join(''):'<p>No active dossier.</p>';
-    status.textContent=`Live authoritative state · ${sites.length} company site(s)`;
+  let byGuid=new Map(), contracts=[], receivedAt=0, pending=null;
+  const status=document.getElementById('industryDispatchStatus');
+  function accept(state){
+    const tags=new Map((state.rollingStockTags||[]).map(t=>[t.assetId,t])), assigned=new Map();
+    const names=new Map((state.locationChoices||[]).map(x=>[x.id,x.name]));
+    contracts=(state.industrial?.contracts||[]).filter(c=>!['Completed','Cancelled','Expired'].includes(c.state));
+    for(const c of contracts)for(const w of c.assignedWagons||[])assigned.set(w.assetId,c);
+    byGuid=new Map((state.fleet||[]).filter(w=>w.carGuid).map(w=>{const tag=tags.get(w.assetId)||{},dossier=assigned.get(w.assetId);return [w.carGuid.toLowerCase(),{...tag,operatingState:w.state,dossierId:dossier?.dossierId||dossier?.contractId,displayName:dossier?.displayName,destination:dossier?.destinationFacilityId,destinationName:names.get(dossier?.destinationFacilityId)||dossier?.destinationFacilityId}]}));
+    receivedAt=Date.now();
+    if(status)status.textContent=`Tags and dossiers read at ${new Date(receivedAt).toLocaleTimeString()}. Cargo fill follows train updates. Refresh tags after changes in Management.`;
+    const list=document.getElementById('industryDispatchDossiers');
+    if(list)list.innerHTML=contracts.map(c=>`<p><a target="_top" href="/management?tab=contracts&dossier=${encodeURIComponent(c.dossierId||c.contractId)}">${esc(c.displayName||c.dossierId||c.contractId)}</a><br>${esc(c.state)} · ${(c.assignedWagons||[]).length} wagons · delivered ${esc(c.deliveredQuantity||0)} / ${esc(c.quantity)}</p>`).join('')||'<p>No active dossier.</p>';
+    if(typeof window.dispatchEvent==='function')window.dispatchEvent(new CustomEvent('bdvm:industrial-display'));
   }
-  async function refresh(force=false){if(refreshing||(!force&&Date.now()-lastRefresh<1000))return;refreshing=true;try{const next=await json('/bdvm'),signature=JSON.stringify([next.industrial?.stocks,next.industrial?.needs,next.industrial?.contracts,next.industrial?.cargoTags,next.fleet]);lastRefresh=Date.now();if(force||signature!==lastSignature){lastSignature=signature;render(next)}}catch(error){status.textContent=`Economy unavailable: ${error.message}`}finally{refreshing=false}}
-  async function create(){try{const assetIds=[...wagons.querySelectorAll('input:checked')].map(x=>x.value);if(!origin.value||!destination.value||!cargo.value||origin.value===destination.value||!assetIds.length||!(Number(quantity.value)>0))throw new Error('Choose distinct companies, cargo, a positive quantity, and at least one tagged wagon.');status.textContent='Creating authoritative dossier…';const correlationId=globalThis.crypto?.randomUUID?.()||`${Date.now()}-${Math.random().toString(16).slice(2)}`;await json('/bdvm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'industry.manage',operation:'start-manual',originFacilityId:origin.value,destinationFacilityId:destination.value,cargoId:cargo.value,quantity:Number(quantity.value),assetIds,forCompany:byId('industryDispatchCompany').checked,correlationId})});quantity.value='';await refresh(true)}catch(error){status.textContent=`Dossier refused: ${error.message}`}}
-  origin.addEventListener('change',()=>render(state));destination.addEventListener('change',()=>render(state));byId('industryDispatchCompany').addEventListener('change',()=>render(state));byId('industryDispatchCreate').addEventListener('click',create);byId('industryDispatchRefresh').addEventListener('click',()=>refresh(true));document.querySelector('a[href="#industryDispatchTab"]')?.addEventListener('click',()=>refresh(true));
-  // Do not poll the whole authoritative economy while dispatching.  Track and
-  // train updates are intentionally frequent; dossier state is refreshed when
-  // this panel is opened, explicitly requested, or changed by its own command.
+  function describe(car={}){
+    const tag=byGuid.get(String(car.guid||'').toLowerCase())||{};
+    const amount=car.loadedAmount,capacity=car.cargoCapacity,known=typeof amount==='number'&&Number.isFinite(amount)&&amount>=0;
+    const ratio=known&&capacity>0?Math.max(0,Math.min(1,amount/capacity)):null;
+    const fill=!known?'Unknown':amount<=0.01?'Empty':ratio===null?'Loaded':ratio>=0.99?'Full':'Partial';
+    const mismatch=known&&amount>0.01&&tag.cargoId&&car.cargoId&&tag.cargoId!==car.cargoId;
+    const color=mismatch?'#ec7777':tag.operatingState==='Maintenance'?'#ce97f2':tag.operatingState==='Stored'?'#a5a6b0':fill==='Full'?'#72c69b':fill==='Partial'||fill==='Loaded'?'#ebba69':tag.cargoId?'#7bb8e6':'#a7a7a7';
+    const short=`${mismatch?'! ':''}${fill}${ratio===null?'':` ${Math.round(ratio*100)}%`}`;
+    const detail=[short,car.cargoId||tag.cargoId||'No cargo tag',tag.sourceFacilityId?`Tag: ${tag.sourceFacilityId} (${tag.lifetime||''})`:'',tag.destination?`→ ${tag.destinationName}`:'',tag.displayName||tag.dossierId||'',tag.operatingState||'',mismatch?'Cargo differs from tag':''].filter(Boolean).join(' · ');
+    return {color,short,detail,dossierId:tag.dossierId,destination:tag.destination||'',tagCargo:tag.cargoId||'',receivedAt};
+  }
+  async function refresh(){
+    if(pending)return pending;
+    pending=(async()=>{try{const response=await fetch('/bdvm',{cache:'no-store',credentials:'same-origin'});const state=await response.json();if(!response.ok)throw new Error(state.error||`HTTP ${response.status}`);accept(state)}catch(error){byGuid.clear();contracts=[];receivedAt=0;if(status)status.textContent=`Tags unavailable: ${error.message}`;window.dispatchEvent?.(new CustomEvent('bdvm:industrial-display'))}finally{pending=null}})();return pending;
+  }
+  globalThis.BdvmIndustrialDisplay=Object.freeze({accept,describe,refresh,escape:esc});
+  if(!status)return;
+  document.getElementById('industryDispatchRefresh')?.addEventListener('click',refresh);
+  document.querySelector('a[href="#industryDispatchTab"]')?.addEventListener('click',refresh);
+  // Once per opening, and on explicit actions. Never poll the complete economy.
+  document.addEventListener('DOMContentLoaded',refresh,{once:true});
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&Date.now()-receivedAt>1000)refresh()});
 })();
-
 (function () {
   const el = id => document.getElementById(id);
   const panel = el('rollingStockTags');
@@ -49,6 +59,7 @@
     try {
       const state = await request();
       if (current !== generation) return;
+      globalThis.BdvmIndustrialDisplay?.accept(state);
       asset = (state.fleet || []).find(x => x.carGuid && x.carGuid.toLowerCase() === String(selection.carGuid).toLowerCase());
       if (!asset) throw new Error('This rolling stock is not in your managed fleet.');
       const info = (state.rollingStockTags || []).find(x => x.assetId === asset.assetId);

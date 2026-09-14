@@ -1,5 +1,15 @@
 # Remote Dispatch — suivi
 
+2026-09-14 — Le formulaire des dossiers industriels est remplacé par un lien vers
+Management → Contracts. Dispatch affiche remplissage, cargo, tags et destination
+sur les wagons ; événements cargo ciblés, aucun nouveau polling économique.
+38 tests frontend et les six suites backend passent ; aperçu navigateur avec
+remplissage à 50 % et lien dossier vérifié. Candidat coordonné
+`unity-candidate-20260914-industrial-contracts-r4` préparé, non installé.
+[Méthode, preuves et qualification Unity restante](../../dv-company/docs/INDUSTRIAL-CONTRACTS-MANAGEMENT-2026-09-14.md).
+
+2026-09-14 : retour en jeu « Web injoignable » expliqué par `SocketException` au démarrage : Windows réserve le port 7245. `unity-candidate-20260914-main-thread-r2` déployé avec BDVM.Full ; erreur de démarrage désormais affichée/journalisée, réglage local sauvegardé puis déplacé vers 18080 (bind IPv4/IPv6 vérifié). Six suites RemoteDispatch passent ; comparaison globale 95 SAME. Après relance, vérifier http://localhost:18080/dispatch et les réponses réelles ; [preuves, sauvegardes et limites](../../dv-company/docs/UNITY-RUNTIME-REGRESSION-2026-09-14.md). Les premières optimisations de captures/budgets restent décrites dans le rapport précédent. États W inchangés.
+
 L’index est la source de vérité pour les travaux restants. Les identifiants sont stables et ne sont jamais réutilisés. Préfixes : I (idée), Q (question), D (décision), W (travail), X (risque). Les états de W ne changent que sur instruction explicite de l’utilisateur.
 
 | ID | État | Sujet |
@@ -39,7 +49,7 @@ RemoteDispatchLive 1.8.1 : build Release, 28 tests frontend, tests transport et 
 
 Optimisation 2026-09-13 : ajout de `/updates-ws` pour les notifications légères avec repli HTTP long-poll, filtrage Management limité aux changements métier, cache snapshot porté à 30 s, et infrastructure rafraîchie à 5 s côté host/client. Build Release réussi avec les deux avertissements de compatibilité NU1701 connus ; 35 tests frontend/backend passent. DLL installée et vérifiée par SHA-256 ; backup commun : `D:\Steam\steamapps\common\Derail Valley\Mods-backup\bdvm-performance-websocket-20260913-160215`. L’effet sur les accoups doit être confirmé en partie réelle.
 
-Optimisation anti-blocage 2026-09-13 : les captures Cars/Player/Jobs/Trainset et les endpoints HTTP utilisent désormais `async/await` sans `.Result`; les lectures Unity restent sérialisées par la file main thread et la conversion JSON intervient après capture. Build Release réussi avec les deux avertissements NU1701 connus ; sessions, jobs, routes et transport passent. Installation et mesure en jeu restent à faire.
+Optimisation anti-blocage 2026-09-13 : les captures Cars/Player/Jobs/Trainset et les endpoints HTTP utilisent désormais `async/await` sans `.Result`; les lectures Unity restent sérialisées par la file main thread et la conversion JSON intervient après capture. Build Release réussie avec les avertissements de compatibilité connus NU1701 ; les 19 tests frontend et les cinq suites C# backend/routes/jobs/transport/sessions passent. Installation et mesure en jeu restent à faire.
 
 QA interface et correctif 1.7.3 installés jeu fermé : DLL vérifié et Settings.xml inchangé. Sauvegarde : Mods-backup/RemoteDispatchLive-before-1.7.3 (dossier horodaté). Vingt-quatre tests frontend et suites backend infrastructure, route, AI, Multiplayer et Yard Master réussis. Parcours navigateur sur simulation : Jobs avec filtre actif/recherche et DirectHaul affecté/non affecté, suivi wagon depuis Cars, choix de locomotive conservé, commandes de couplage/inverseur simulées, recherche/sélection AI, recentrage multiplayer, thèmes et quatre modes de couleur, application joueur et arrêt/reprise/affectation AI simulés, serveur coupé et statut périmé. Bugs corrigés : erreur répétée du panneau loco vide, sélection perdue au refresh, dételage actif sans wagon, liste avant/arrière non actualisée à nombre constant. Lecture loco sans requests concurrentes, erreurs gérées, timeout et suspension onglet masqué. Les simulations ne valident pas les effets physiques des commandes en partie réelle.
 

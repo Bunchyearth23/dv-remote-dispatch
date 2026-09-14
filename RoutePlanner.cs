@@ -115,11 +115,12 @@ namespace DvMod.RemoteDispatch
             var result = await Updater.RunOnMainThread(() => { RequireWorld(); return topology; });
             if (result != null) return result;
             result = new Topology();
-            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            int epoch = await Updater.RunOnMainThread(() => { int e = generation; Updater.RunCoroutine(Capture(result, completion, e)); return e; });
-            if (await Task.WhenAny(completion.Task, Task.Delay(15000)) != completion.Task)
-                throw new InvalidOperationException("Network loading timed out. Try again.");
-            await completion.Task;
+            int epoch = 0;
+            using (var timeout = new System.Threading.CancellationTokenSource(15000))
+                await UnityCapture.Run<bool>(completion => {
+                    epoch = generation;
+                    return Capture(result, completion, epoch);
+                }, timeout.Token).ConfigureAwait(false);
             return await Updater.RunOnMainThread(() => {
                 if (epoch != generation) throw new InvalidOperationException("The world changed.");
                 return topology = result;
@@ -266,31 +267,44 @@ namespace DvMod.RemoteDispatch
             if (conflicts.Count > 0) throw new InvalidOperationException(string.Join("\n", conflicts));
             return AiTrafficCommands.Assign(GetCar(plan.train), plan.path.steps.Select(s => plan.topology.native[s.track]).ToList(), plan.path, plan.engineer);
         });
-        public static Task<object> Apply(string owner, string token) => Updater.RunOnMainThread<object>(() => {
-            if (!Main.settings.permissions.HasJunctionPermission(owner)) throw new UnauthorizedAccessException("Switch control permission required.");
-            if (!plans.TryGetValue(token, out var plan) || plan.owner != owner || plan.expires <= DateTime.UtcNow)
-                throw new InvalidOperationException("Route preview expired or was replaced. Recalculate the route.");
-            plans.Remove(token); // Single use, including a refused or partially failed attempt.
-            var conflicts = Check(plan, out var isAi);
-            if (isAi) throw new InvalidOperationException("Use driver assignment for this AI train.");
-            if (conflicts.Count > 0) throw new InvalidOperationException(string.Join("\n", conflicts));
-            int changed = 0;
-            try
+        public static async Task<object> Apply(string owner, string token)
+        {
+            var plan = await Updater.RunOnMainThread(() =>
             {
-                // Preflight and switching run in one main-thread callback, without yielding.
-                foreach (var step in plan.path.steps.Where(s => s.junction >= 0))
+                if (!Main.settings.permissions.HasJunctionPermission(owner)) throw new UnauthorizedAccessException("Switch control permission required.");
+                if (!plans.TryGetValue(token, out var selected) || selected.owner != owner || selected.expires <= DateTime.UtcNow)
+                    throw new InvalidOperationException("Route preview expired or was replaced. Recalculate the route.");
+                plans.Remove(token); // Single use, including a refused or partially failed attempt.
+                var conflicts = Check(selected, out var isAi);
+                if (isAi) throw new InvalidOperationException("Use driver assignment for this AI train.");
+                if (conflicts.Count > 0) throw new InvalidOperationException(string.Join("\n", conflicts));
+                return selected;
+            }).ConfigureAwait(false);
+
+            return await UnityCapture.Run<object>(completion => ApplySwitchesCoroutine(plan, completion)).ConfigureAwait(false);
+        }
+
+        private static IEnumerator ApplySwitchesCoroutine(Plan plan, TaskCompletionSource<object> completion)
+        {
+            var changed = 0;
+            foreach (var step in plan.path.steps.Where(s => s.junction >= 0))
+            {
+                try
                 {
                     var junction = plan.topology.junctions[step.junction];
-                    if (junction.selectedBranch == step.branch) continue;
-                    MultiplayerData.RequireCommand(junction: junction);
-                    if (AiTrafficData.JunctionBlockReason(junction) != null) throw new InvalidOperationException("An AI lock changed.");
-                    junction.Switch(Junction.SwitchMode.REGULAR, step.branch);
-                    if (junction.selectedBranch != step.branch) throw new InvalidOperationException("A switch refused the command.");
-                    changed++;
+                    if (junction.selectedBranch != step.branch)
+                    {
+                        MultiplayerData.RequireCommand(junction: junction);
+                        if (AiTrafficData.JunctionBlockReason(junction) != null) throw new InvalidOperationException("An AI lock changed.");
+                        junction.Switch(Junction.SwitchMode.REGULAR, step.branch);
+                        if (junction.selectedBranch != step.branch) throw new InvalidOperationException("A switch refused the command.");
+                        changed++;
+                    }
                 }
+                catch (Exception e) { completion.TrySetException(new InvalidOperationException($"Command interrupted after {changed} changes; check the map. {e.Message}")); yield break; }
+                yield return null;
             }
-            catch (Exception e) { throw new InvalidOperationException($"Command interrupted after {changed} changes; check the map. {e.Message}"); }
-            return new { changed, message = "Switches set. The route is not reserved; obey signals and watch for traffic." };
-        });
+            completion.TrySetResult(new { changed, message = "Switches set. The route is not reserved; obey signals and watch for traffic." });
+        }
     }
 }

@@ -8,6 +8,7 @@ using Newtonsoft.Json;
 using System.Collections.Generic;
 using System.Linq;
 using System;
+using System.Collections;
 using System.Threading.Tasks;
 
 namespace DvMod.RemoteDispatch
@@ -15,8 +16,12 @@ namespace DvMod.RemoteDispatch
     public static class JobData
     {
         private static readonly Dictionary<TrainCar, string> jobIdForCar = new Dictionary<TrainCar, string>();
+        private static readonly object jobCacheGate = new object();
+        private static Task<Dictionary<string, JObject>>? jobDataCache;
+        private static long jobCacheGeneration;
+        private static long publishedJobGeneration = -1;
         private static bool initialized;
-        public static void Reset() { initialized = false; jobIdForCar.Clear(); jobForId.Clear(); }
+        public static void Reset() { initialized = false; jobIdForCar.Clear(); jobForId.Clear(); lock (jobCacheGate) { jobDataCache = null; jobCacheGeneration++; } }
         private static Dictionary<string, Job> jobForId = new Dictionary<string, Job>();
 
         private const JobLicenses LicensesToExport =
@@ -206,6 +211,112 @@ namespace DvMod.RemoteDispatch
             return result;
         }
 
+        // HTTP callers use this path. It keeps the Unity-facing work on the
+        // main thread, but spreads one complete job projection over frames so
+        // a large save cannot monopolise a single frame.
+        private static object BuildJobDataForAsync(Job job)
+        {
+            static IEnumerable<object> passengerJson(TaskData sequenceTask)
+            {
+                var sequence = sequenceTask.nestedTasks.Select(task => task.GetTaskData()).ToList();
+                string startTrackId = sequence[0].destinationTrack.ID.FullDisplayID;
+                for (int i = 1; i < sequence.Count; i++)
+                {
+                    var task = sequence[i];
+                    bool rural = task.type == (TaskType)42;
+                    bool ruralUnload = rural && !((dynamic)task).isLoading;
+                    if (task.warehouseTaskType != WarehouseTaskType.Unloading && !ruralUnload) continue;
+                    string destination = rural ? ((dynamic)task).stationId : task.destinationTrack.ID.FullDisplayID;
+                    yield return new { startTrack = startTrackId, destinationTrack = destination,
+                        cars = task.cars.Select(car => car.ID).ToArray() };
+                    startTrackId = destination;
+                }
+            }
+            static IEnumerable<TaskData> flatten(TaskData data)
+            {
+                if (data.type == TaskType.Transport) yield return data;
+                else if (data.nestedTasks != null)
+                    foreach (var nested in data.nestedTasks)
+                        foreach (var task in flatten(nested.GetTaskData())) yield return task;
+            }
+            static object taskJson(TaskData data) => new {
+                startTrack = data.startTrack?.ID?.FullDisplayID,
+                destinationTrack = data.destinationTrack?.ID?.FullDisplayID,
+                cars = (data.cars ?? new List<Car>()).Select(car => car.ID).ToArray() };
+            static string?[] licenses(Job value) =>
+                Enum.GetValues(typeof(JobLicenses)).OfType<JobLicenses>()
+                    .Where(v => (value.requiredLicenses & LicensesToExport & v) != JobLicenses.Basic)
+                    .Select(v => Enum.GetName(typeof(JobLicenses), v)).ToArray();
+            static float length(TaskData data) => data.cars?.Sum(car => car.length) ?? 0;
+            static float mass(TaskData data) => (data.cars?.Sum(car => car.carType.parentType.mass) ?? 0)
+                + (data.cargoTypePerCar == null ? 0f : (data.cars ?? new List<Car>())
+                    .Zip(data.cargoTypePerCar, (car, cargo) => car.capacity * cargo.ToV2().massPerUnit).Sum());
+
+            var warehouses = job.tasks.OfType<WarehouseTask>().ToArray();
+            bool directHaul = (int)job.jobType == 5 && warehouses.Length == 2;
+            IEnumerable<object> tasks;
+            TaskData mainTask;
+            if (directHaul)
+            {
+                mainTask = warehouses[0].GetTaskData();
+                tasks = new[] { new {
+                    startTrack = warehouses[0].warehouseMachine.WarehouseTrack.ID.FullDisplayID,
+                    destinationTrack = warehouses[1].warehouseMachine.WarehouseTrack.ID.FullDisplayID,
+                    cars = (mainTask.cars ?? new List<Car>()).Select(car => car.ID).ToArray() } };
+            }
+            else if (job.jobType <= JobType.ComplexTransport)
+            {
+                var flattened = job.tasks.Select(task => task.GetTaskData()).SelectMany(flatten).ToArray();
+                mainTask = job.jobType == JobType.ShuntingLoad ? flattened.Last() : flattened.First();
+                tasks = flattened.Select(taskJson);
+            }
+            else
+            {
+                var sequence = job.tasks[0].GetTaskData();
+                mainTask = sequence.nestedTasks[0].GetTaskData();
+                tasks = passengerJson(sequence);
+            }
+            return new {
+                originYardId = job.chainData.chainOriginYardId,
+                destinationYardId = job.chainData.chainDestinationYardId,
+                tasks = tasks.ToArray(), yardMaster = directHaul,
+                carsAssigned = mainTask.cars?.Count > 0, requiredLicenses = licenses(job),
+                length = length(mainTask), mass = mass(mainTask) / 1000,
+                basePayment = job.GetBasePaymentForTheJob(), isActive = job.State == JobState.InProgress };
+        }
+
+        private static JObject UnsupportedJob(Exception exception, Job job) => new JObject(
+            new JProperty("tasks", new JArray()), new JProperty("requiredLicenses", new JArray()),
+            new JProperty("length", 0), new JProperty("mass", 0), new JProperty("basePayment", 0),
+            new JProperty("isActive", job.State == JobState.InProgress),
+            new JProperty("error", "Mission non lisible : " + exception.GetType().Name));
+
+        private static IEnumerator CaptureAllJobs(TaskCompletionSource<Dictionary<string, object>> completion)
+        {
+            KeyValuePair<string, Job>[] jobs;
+            Dictionary<string, object> result;
+            try
+            {
+                JobForId("");
+                jobs = jobForId.ToArray();
+                result = new Dictionary<string, object>(jobs.Length);
+            }
+            catch (Exception e)
+            {
+                completion.TrySetException(e);
+                yield break;
+            }
+            foreach (var pair in jobs)
+            {
+                try { result[pair.Key] = BuildJobDataForAsync(pair.Value); }
+                catch (Exception e) { result[pair.Key] = new { tasks = new object[0], requiredLicenses = new string[0],
+                    length = 0, mass = 0, basePayment = 0, isActive = pair.Value.State == JobState.InProgress,
+                    error = "Mission non lisible : " + e.GetType().Name }; }
+                yield return null;
+            }
+            completion.TrySetResult(result);
+        }
+
         private static IEnumerable<StaticJobDefinition> YardMasterDefinitions()
         {
             var mod = UnityModManagerNet.UnityModManager.FindMod("SelfShunt");
@@ -217,7 +328,44 @@ namespace DvMod.RemoteDispatch
         }
 
         public static Task<Dictionary<string, JObject>> GetAllJobDataAsync()
-            => Updater.RunOnMainThread(GetAllJobData);
+        {
+            lock (jobCacheGate)
+            {
+                if (jobDataCache == null || jobDataCache.IsFaulted || jobDataCache.IsCanceled ||
+                    (jobDataCache.IsCompleted && publishedJobGeneration != jobCacheGeneration))
+                    jobDataCache = BuildStableJobCache();
+                return jobDataCache;
+            }
+        }
+
+        private static async Task<Dictionary<string, JObject>> BuildStableJobCache()
+        {
+            using (var timeout = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(Updater.Lifetime))
+            {
+                timeout.CancelAfter(15000);
+                while (true)
+                {
+                    long epoch = 0;
+                    var captured = await UnityCapture.Run<Dictionary<string, object>>(completion => {
+                        lock (jobCacheGate) epoch = jobCacheGeneration;
+                        return CaptureAllJobs(completion);
+                    }, timeout.Token).ConfigureAwait(false);
+                    var result = await System.Threading.Tasks.Task.Run(() => captured.ToDictionary(pair => pair.Key,
+                        pair => JObject.FromObject(pair.Value)), timeout.Token).ConfigureAwait(false);
+                    lock (jobCacheGate) if (epoch == jobCacheGeneration) { publishedJobGeneration = epoch; return result; }
+                }
+            }
+        }
+
+        private static void InvalidateJobCache()
+        {
+            lock (jobCacheGate) {
+                jobCacheGeneration++;
+                // Keep the in-flight owner; it restarts after an invalidation.
+                if (jobDataCache?.IsCompleted == true) jobDataCache = null;
+            }
+            Sessions.AddTag("jobs");
+        }
 
         public static async Task<string> GetAllJobDataJsonAsync()
         {
@@ -233,7 +381,7 @@ namespace DvMod.RemoteDispatch
                 {
                     if (string.IsNullOrEmpty(jobId)) jobIdForCar.Remove(__instance);
                     else jobIdForCar[__instance] = jobId;
-                    Sessions.AddTag("jobs");
+                    InvalidateJobCache();
                 }
             }
             [HarmonyPatch(typeof(JobChainController), nameof(JobChainController.UpdateTrainCarPlatesOfCarsOnJob))]
@@ -250,14 +398,14 @@ namespace DvMod.RemoteDispatch
                             jobIdForCar.Remove(trainCar);
                         else
                             jobIdForCar[trainCar] = jobId;
-                        Sessions.AddTag("jobs");
+                        InvalidateJobCache();
                     }
                 }
             }
             public static void UpdateJobsFromPersistentJobs(Job job)
             {
                 Main.DebugLog(() => "Persistent Jobs sent update for job " + job.ID);
-                Sessions.AddTag("jobs");
+                InvalidateJobCache();
             }
             [HarmonyPatch(typeof(Job))]
             public static class UpdateJobStatePatches
@@ -268,7 +416,7 @@ namespace DvMod.RemoteDispatch
                 {
                     if (!takenViaLoadGame)
                     {
-                        Sessions.AddTag("jobs");
+                        InvalidateJobCache();
                     }
                 }
             }

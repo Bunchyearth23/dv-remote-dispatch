@@ -44,12 +44,10 @@ namespace DvMod.RemoteDispatch
 
         private static async Task<string> BuildJson()
         {
-            var completion = new TaskCompletionSource<Snapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
-            await Updater.RunOnMainThread(() => {
+            var snapshot = await UnityCapture.Run<Snapshot>(completion => {
                 pending = completion;
-                Updater.RunCoroutine(Capture(completion));
+                return Capture(completion);
             }).ConfigureAwait(false);
-            var snapshot = await completion.Task.ConfigureAwait(false);
             var json = await Task.Run(() => JsonConvert.SerializeObject(snapshot)).ConfigureAwait(false);
             lock (gate) completedAt = DateTime.UtcNow;
             return json;

@@ -24,7 +24,7 @@
       <li><a href="#jobsTab" role="tab"><i class="fas fa-clipboard-list" title="Jobs"></i></a></li>
       <li><a href="#aiTab" role="tab"><i class="fas fa-route" title="AI traffic"></i></a></li>
       <li><a href="#routeTab" role="tab"><i class="fas fa-map-signs" title="Plan a route"></i></a></li>
-      <li><a href="#industryDispatchTab" role="tab"><i class="fas fa-boxes" title="Industrial dossiers"></i></a></li>
+      <li><a href="#industryDispatchTab" role="tab"><i class="fas fa-boxes" title="Industrial wagon display"></i></a></li>
       <li><a href="#multiplayerTab" role="tab"><i class="fas fa-users" title="Multiplayer"></i></a></li>
       <li><a href="#locoControlTab" role="tab"><i class="fas fa-gamepad" title="Loco Control"></i></a></li>
       <li><a href="#settingsTab" role="tab"><i class="fas fa-cog" title="Settings"></i></a></li>
@@ -50,7 +50,7 @@
       </section>
       <table id="carList">
         <thead>
-          <tr><th>ID</th><th>Job</th><th>Dest</th></tr>
+          <tr><th>ID</th><th>Job</th><th>Dest</th><th>Cargo / tags</th></tr>
         </thead>
         <tbody id="carListBody"></tbody>
       </table>
@@ -134,22 +134,12 @@
       <div id="multiplayerPlayers"></div>
     </div>
     <div class="leaflet-sidebar-pane" id="industryDispatchTab">
-      <h2>Industrial dossiers</h2>
-      <p>Create a transport dossier from live company stocks with empty or already loaded wagons tagged for the origin industry and cargo. Assign tags from the Cars panel first.</p>
-      <p id="industryDispatchStatus" role="status" aria-live="polite">Connecting to the authoritative economy…</p>
-      <button id="industryDispatchRefresh" type="button">Refresh now</button>
-      <label for="industryDispatchOrigin">Origin company</label>
-      <select id="industryDispatchOrigin"></select>
-      <label for="industryDispatchDestination">Destination company</label>
-      <select id="industryDispatchDestination"></select>
-      <label for="industryDispatchCargo">Cargo</label>
-      <select id="industryDispatchCargo"></select>
-      <label for="industryDispatchQuantity">Planned quantity</label>
-      <input id="industryDispatchQuantity" type="number" min="0.01" step="0.01">
-      <label><input id="industryDispatchCompany" type="checkbox"> Operate and pay my company</label>
-      <p id="industryDispatchOperatorHint"></p>
-      <fieldset><legend>Tagged wagons for this transport</legend><div id="industryDispatchWagons"></div></fieldset>
-      <button id="industryDispatchCreate" type="button">Create dossier and SelfShunt job</button>
+      <h2>Industrial wagon display</h2>
+      <p><a href="/management?tab=contracts" target="_top">Manage dossiers in Management → Contracts</a></p>
+      <p>Create and manage independent deliveries together in Contracts. Assign cargo tags from the Cars panel.</p>
+      <p id="industryDispatchStatus" role="status" aria-live="polite">Reading wagon tags…</p>
+      <button id="industryDispatchRefresh" type="button">Refresh tags and dossiers</button>
+      <p>Wagon colours: blue = tagged empty; amber = partial/loaded; green = full; purple = maintenance; grey = stored or untagged; red = cargo/tag mismatch. Text gives the precise state.</p>
       <h3>Active dossiers</h3><div id="industryDispatchDossiers"></div>
     </div>
     <div class="leaflet-sidebar-pane" id="settingsTab">
@@ -167,7 +157,7 @@
           <th><label for="carColorDropdown">Car color</label></th>
           <td>
             <select name="carColor" id="carColorDropdown">
-              <option value="jobId">by job ID</option>
+              <option value="industrial">by cargo / industrial state</option><option value="jobId">by job ID</option>
               <option value="jobType">by job type</option>
               <option value="destination">by destination</option>
               <option value="carType">by car type</option>

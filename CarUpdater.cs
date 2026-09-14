@@ -11,13 +11,25 @@ namespace DvMod.RemoteDispatch
 {
     public static class CarUpdater
     {
+        [HarmonyPatch(typeof(DV.Logic.Job.Car), "LoadCargo")]
+        public static class CargoLoadedPatch
+        {
+            public static void Postfix(DV.Logic.Job.Car __instance) => CarData.MarkCargoChanged(__instance);
+        }
+        [HarmonyPatch(typeof(DV.Logic.Job.Car), "UnloadCargo")]
+        public static class CargoUnloadedPatch
+        {
+            public static void Postfix(DV.Logic.Job.Car __instance) => CarData.MarkCargoChanged(__instance);
+        }
         public static void ForceCarRefresh()
         {
+            if (!Sessions.HasActiveSessions()) return;
             Sessions.AddTag("cars");
         }
 
         public static void MarkCarAsDirty(TrainCar car)
         {
+            if (!Sessions.HasActiveSessions()) return;
             Sessions.AddTag($"carguid-{car.CarGUID}");
         }
 
@@ -43,8 +55,9 @@ namespace DvMod.RemoteDispatch
             }
         }
 
-        public static void MarkTrainsetAsDirty(Trainset trainset)
+        public static void MarkTrainsetAsDirty(Trainset trainset, bool activeSession = false)
         {
+            if (!activeSession && !Sessions.HasActiveSessions()) return;
             if (trainset.cars.Find(CarData.ShouldReturnTrainCar) != null)
                 Sessions.AddTag($"trainset-{trainset.id}");
         }
@@ -59,7 +72,7 @@ namespace DvMod.RemoteDispatch
             }
 
             carSpawner.CarSpawned += OnCarsChanged;
-            carSpawner.CarAboutToBeDeleted += OnCarsChanged;
+            carSpawner.CarAboutToBeDeleted += OnCarDeleted;
 
             foreach (var controller in LocoRestorationController.allLocoRestorationControllers)
                 controller.StateChanged += OnRestorationStateChanged;
@@ -71,7 +84,7 @@ namespace DvMod.RemoteDispatch
             if (carSpawner == null)
                 return;
             carSpawner.CarSpawned -= OnCarsChanged;
-            carSpawner.CarAboutToBeDeleted -= OnCarsChanged;
+            carSpawner.CarAboutToBeDeleted -= OnCarDeleted;
 
             foreach (var controller in LocoRestorationController.allLocoRestorationControllers)
                 controller.StateChanged -= OnRestorationStateChanged;
@@ -80,6 +93,12 @@ namespace DvMod.RemoteDispatch
         private static void OnCarsChanged(TrainCar trainCar)
         {
             Sessions.AddTag("cars");
+        }
+
+        private static void OnCarDeleted(TrainCar trainCar)
+        {
+            CarData.ForgetCargoCar(trainCar);
+            OnCarsChanged(trainCar);
         }
 
         private static void OnRestorationStateChanged(LocoRestorationController controller, TrainCarLivery livery, LocoRestorationController.RestorationState newState)

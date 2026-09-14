@@ -32,7 +32,7 @@ class Program
         Check(snapshot["signals"]!.Count() == 100, "Signals missing");
         Check(Updater.Yields > 1, "Capture did not yield between rows");
         Check(ReferenceEquals(first, InfrastructureData.GetJson()), "Completed cache not reused");
-        Thread.Sleep(510);
+        Thread.Sleep(5010);
         var refreshed = InfrastructureData.GetJson();
         Check(!ReferenceEquals(first, refreshed), "Expired cache not refreshed");
         PumpUntil(refreshed);
@@ -98,6 +98,7 @@ namespace DvMod.RemoteDispatch
     public static class Main { public static void DebugLog(Func<string> message) => Console.WriteLine(message()); }
     public static class Updater
     {
+        public static System.Threading.CancellationToken Lifetime => System.Threading.CancellationToken.None;
         static readonly ConcurrentQueue<Action> queue = new();
         static readonly List<IEnumerator> routines = new();
         public static int Yields;

@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net6.0</TargetFramework><Nullable>enable</Nullable></PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../UnityCapture.cs" Link="UnityCapture.cs" />
     <Compile Include="../../RouteGraph.cs" Link="RouteGraph.cs" />
     <Compile Include="../../TrackIdentity.cs" Link="TrackIdentity.cs" />
     <Compile Include="../../RoutePlanner.cs" Link="RoutePlanner.cs" />

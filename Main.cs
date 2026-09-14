@@ -116,6 +116,7 @@ namespace DvMod.RemoteDispatch
             InfrastructureData.Reset();
             RailTracks.Reset();
             JobData.Reset();
+            CarData.Reset();
             RoutePlanner.Reset();
             AiTrafficCommands.Reset();
             MultiplayerData.Reset();

@@ -23,6 +23,7 @@ namespace DvMod.RemoteDispatch
         private const int ManagementSnapshotCacheMilliseconds = 30000;
         private static readonly ConcurrentDictionary<string, ManagementSnapshotCacheEntry> managementSnapshotCache = new ConcurrentDictionary<string, ManagementSnapshotCacheEntry>();
         private static GameObject? rootObject;
+        public static string Status { get; private set; } = "Web server stopped.";
         private readonly HttpListener listener = new HttpListener();
         private readonly ConcurrentDictionary<Task, byte> requests = new ConcurrentDictionary<Task, byte>();
         private readonly SemaphoreSlim requestSlots = new SemaphoreSlim(16, 16);
@@ -39,14 +40,27 @@ namespace DvMod.RemoteDispatch
         {
             if (!listener.IsListening)
             {
-                var remote = Main.settings.allowRemoteConnections && !string.IsNullOrEmpty(Main.settings.serverPassword);
-                listener.Prefixes.Add($"http://{(remote ? "*" : "localhost")}:{Main.settings.serverPort}/");
-                listener.AuthenticationSchemes = AuthenticationSchemes.Anonymous | AuthenticationSchemes.Basic;
-                listener.Realm = "DV Remote Dispatch";
-                if (Main.settings.allowRemoteConnections && !remote)
-                    Main.mod?.Logger.Warning("Remote connections were requested but no password is set; the server remains localhost-only.");
-                Main.DebugLog(() => $"Starting HTTP server on {(remote ? "all interfaces" : "localhost")}:{Main.settings.serverPort}");
-                listener.Start();
+                if (!HttpListenerLifecycle.TryStart(() =>
+                {
+                    var remote = Main.settings.allowRemoteConnections && !string.IsNullOrEmpty(Main.settings.serverPassword);
+                    listener.Prefixes.Add($"http://{(remote ? "*" : "localhost")}:{Main.settings.serverPort}/");
+                    listener.AuthenticationSchemes = AuthenticationSchemes.Anonymous | AuthenticationSchemes.Basic;
+                    listener.Realm = "DV Remote Dispatch";
+                    if (Main.settings.allowRemoteConnections && !remote)
+                        Main.mod?.Logger.Warning("Remote connections were requested but no password is set; the server remains localhost-only.");
+                    Main.DebugLog(() => $"Starting HTTP server on {(remote ? "all interfaces" : "localhost")}:{Main.settings.serverPort}");
+                    listener.Start();
+                    Status = $"Web server ready: http://localhost:{Main.settings.serverPort}/";
+                    Main.mod?.Logger.Log(Status);
+                }, exception =>
+                {
+                    Status = $"Web server unavailable on port {Main.settings.serverPort}. Select an available port and restart the mod.";
+                    Main.mod?.Logger.Error(Status + " " + exception);
+                }))
+                {
+                    listener.Close();
+                    return;
+                }
             }
 
             while (listener.IsListening)
@@ -102,13 +116,14 @@ namespace DvMod.RemoteDispatch
 
         public void OnDestroy()
         {
+            Status = "Web server stopped.";
             if (listener.IsListening)
             {
                 Main.DebugLog(() => "Stopping HTTP server");
                 listener.Stop();
                 listener.Prefixes.Clear();
-                listener.Close();
             }
+            listener.Close();
         }
 
         private static bool CheckAuthentication(HttpListenerContext context)
@@ -216,7 +231,7 @@ namespace DvMod.RemoteDispatch
                 var request = context.Request; var user = context.User?.Identity?.Name ?? ""; var isLoopbackRequest = IsLoopbackRequest(context);
                 if (!Main.settings.permissions.HasCompanyPermission(user)) { RenderEmpty(context, 403); return; }
                 string result;
-                if (request.HttpMethod == "GET") result = await Updater.RunOnMainThread(() => BDVMIntegration.GetState(user, isLoopbackRequest)).ConfigureAwait(false);
+                if (request.HttpMethod == "GET") result = await ReadBDVMSnapshot(user, isLoopbackRequest, false).ConfigureAwait(false);
                 else if (request.HttpMethod == "POST")
                 {
                     if (!(request.ContentType ?? "").StartsWith("application/json", StringComparison.OrdinalIgnoreCase)) { RenderEmpty(context, 415); return; }
@@ -284,7 +299,7 @@ namespace DvMod.RemoteDispatch
                 if (path == "/api/web/shell" && context.Request.HttpMethod == "GET")
                     result = BDVMIntegration.GetWebShell(user, isLoopbackRequest);
                 else if (path == "/api/modules/bdvm.dispatch/snapshot" && context.Request.HttpMethod == "GET")
-                    result = await Updater.RunOnMainThread(() => BDVMIntegration.GetState(user, isLoopbackRequest)).ConfigureAwait(false);
+                    result = await ReadBDVMSnapshot(user, isLoopbackRequest, false).ConfigureAwait(false);
                 else if ((path == "/api/modules/bdvm.dispatch/junction/control" || path == "/api/modules/bdvm.dispatch/route/control") && context.Request.HttpMethod == "POST")
                 {
                     if (!(context.Request.ContentType ?? "").StartsWith("application/json", StringComparison.OrdinalIgnoreCase)) { RenderEmpty(context, 415); return; }
@@ -332,7 +347,7 @@ namespace DvMod.RemoteDispatch
         {
             try
             {
-                var result = await Updater.RunOnMainThread(() => BDVMIntegration.GetManagementState(user, isLoopbackRequest)).ConfigureAwait(false);
+                var result = await ReadBDVMSnapshot(user, isLoopbackRequest, true).ConfigureAwait(false);
                 lock (entry.gate) { entry.payload = result; entry.refreshedAtUtc = DateTime.UtcNow; }
                 return result;
             }
@@ -344,6 +359,19 @@ namespace DvMod.RemoteDispatch
 
         private static void InvalidateManagementSnapshot(string user, bool isLoopbackRequest)
             => managementSnapshotCache.TryRemove(user + "\n" + isLoopbackRequest, out _);
+
+        private static async Task<string> ReadBDVMSnapshot(string user, bool loopback, bool management)
+        {
+            var lifetime = Updater.Lifetime;
+            // The bridge captures on Unity and returns a worker task. Never wait
+            // for that task inside the dispatcher callback.
+            var serialization = await Updater.RunOnMainThread(() => management
+                ? BDVMIntegration.GetManagementStateJsonAsync(user, loopback)
+                : BDVMIntegration.GetStateJsonAsync(user, loopback)).ConfigureAwait(false);
+            var result = await serialization.ConfigureAwait(false);
+            lifetime.ThrowIfCancellationRequested();
+            return result;
+        }
 
         private static void RenderBDVMError(HttpListenerContext context, Exception exception)
         {
@@ -521,7 +549,7 @@ namespace DvMod.RemoteDispatch
             switch (url.Segments.Length)
             {
             case 2:
-                Render200(context, ContentTypes.Json, await Updater.RunOnMainThread(Junctions.GetJunctionPointJSON).ConfigureAwait(false));
+                Render200(context, ContentTypes.Json, await Junctions.GetJunctionPointJSONAsync().ConfigureAwait(false));
                 break;
             case 4:
                 var junctionIdString = url.Segments[2].TrimEnd('/');

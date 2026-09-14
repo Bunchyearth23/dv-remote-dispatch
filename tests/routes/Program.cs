@@ -211,12 +211,18 @@ namespace DvMod.RemoteDispatch
     }
     public static class Updater
     {
+        public static System.Threading.CancellationToken Lifetime => System.Threading.CancellationToken.None;
         static ConcurrentQueue<Action> queue=new();
         static List<IEnumerator> routines=new();
         public static Task<T> RunOnMainThread<T>(Func<T> f)
         {
             var t=new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
             queue.Enqueue(()=>{try{t.SetResult(f());}catch(Exception e){t.SetException(e);}});return t.Task;
+        }
+        public static Task RunOnMainThread(Action action)
+        {
+            var t=new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            queue.Enqueue(()=>{try{action();t.SetResult(true);}catch(Exception e){t.SetException(e);}});return t.Task;
         }
         public static void RunCoroutine(IEnumerator routine){Program.OnMain();routines.Add(routine);}
         public static void Pump(){while(queue.TryDequeue(out var a))a();foreach(var r in routines.ToArray())if(!r.MoveNext())routines.Remove(r);}

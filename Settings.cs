@@ -24,6 +24,7 @@ namespace DvMod.RemoteDispatch
         public void Draw()
         {
             GUILayout.BeginVertical(GUILayout.ExpandWidth(false));
+            GUILayout.Label(HttpServer.Status);
 
             if (uncommittedPort == "initial")
                 uncommittedPort = serverPort.ToString();

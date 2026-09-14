@@ -17,6 +17,19 @@ namespace DvMod.RemoteDispatch
         public readonly string? jobId;
         public readonly string? destinationYardId;
         public readonly TrainCarType carType;
+        public string? cargoId;
+        public float? loadedAmount;
+        public float? cargoCapacity;
+        // Unity-owned index, populated by existing captures; no fleet scan on cargo events.
+        private static readonly Dictionary<DV.Logic.Job.Car, string> cargoCarGuids = new Dictionary<DV.Logic.Job.Car, string>();
+        internal static void MarkCargoChanged(DV.Logic.Job.Car car)
+        {
+            if (car != null && cargoCarGuids.TryGetValue(car, out var id) && Sessions.HasActiveSessions()) Sessions.AddTag("carguid-" + id);
+        }
+        internal static void ForgetCargoCar(TrainCar car)
+        {
+            if (car?.logicCar != null) cargoCarGuids.Remove(car.logicCar);
+        }
 
         protected CarData(string guid, float length, World.LatLon latlon, float rotation, string? jobId, string? destinationYardId, TrainCarType carType)
         {
@@ -34,7 +47,7 @@ namespace DvMod.RemoteDispatch
             if (LocoControl.CanBeControlled(trainCar))
                 return new ControllableLocoData(trainCar);
 
-            return new CarData(
+            var data = new CarData(
                 trainCar.CarGUID,
                 trainCar.InterCouplerDistance,
                 latlon: new World.Position(trainCar.transform.TransformPoint(trainCar.Bounds.center) - WorldMover.currentMove).ToLatLon(),
@@ -42,6 +55,14 @@ namespace DvMod.RemoteDispatch
                 jobId: JobData.JobIdForCar(trainCar),
                 destinationYardId: JobData.JobForCar(trainCar)?.chainData?.chainDestinationYardId,
                 carType: trainCar.carType);
+            if (trainCar.logicCar != null)
+            {
+                cargoCarGuids[trainCar.logicCar] = trainCar.CarGUID;
+                data.loadedAmount = trainCar.logicCar.LoadedCargoAmount;
+                data.cargoCapacity = trainCar.logicCar.capacity;
+                data.cargoId = data.loadedAmount > 0.01f ? trainCar.logicCar.CurrentCargoTypeInCar.ToString() : null;
+            }
+            return data;
         }
 
         public virtual JObject ToJson()
@@ -50,7 +71,9 @@ namespace DvMod.RemoteDispatch
                 new JProperty("guid", guid),
                 new JProperty("length", (int)length),
                 new JProperty("position", latlon.ToJson()),
-                new JProperty("rotation", Math.Round(rotation, 2))
+                new JProperty("rotation", Math.Round(rotation, 2)),
+                new JProperty("cargoId", cargoId), new JProperty("loadedAmount", loadedAmount),
+                new JProperty("cargoCapacity", cargoCapacity)
             );
         }
 
@@ -79,28 +102,68 @@ namespace DvMod.RemoteDispatch
 
         public static Task<Dictionary<string, CarData>> GetAllCarDataAsync()
         {
-            return Updater.RunOnMainThread(() =>
+            lock (captureGate)
             {
-                return TrainCarRegistry.Instance
-                    .logicCarToTrainCar
-                    .Values
-                    .Where(ShouldReturnTrainCar)
-                    .ToDictionary(car => car.ID, car => From(car));
-            });
+                if (allCarsCapture == null || allCarsCapture.IsCompleted) allCarsCapture = GetAllCarDataWorkerAsync();
+                return allCarsCapture;
+            }
         }
 
-        public static async Task<Dictionary<string, JObject>> GetTrainsetDataAsync(int id)
+        private static readonly object captureGate = new object();
+        private static Task<Dictionary<string, CarData>>? allCarsCapture;
+        private static readonly Dictionary<int, Task<Dictionary<string, JObject>>> trainsetCaptures = new Dictionary<int, Task<Dictionary<string, JObject>>>();
+
+        public static void Reset()
         {
-            var cars = await Updater.RunOnMainThread(() =>
+            cargoCarGuids.Clear();
+            lock (captureGate) { allCarsCapture = null; trainsetCaptures.Clear(); }
+        }
+
+        private static System.Collections.IEnumerator CaptureCars(IEnumerable<TrainCar> source,
+            TaskCompletionSource<List<(string id, CarData data)>> completion)
+        {
+            var cars = source.ToArray();
+            var result = new List<(string id, CarData data)>(cars.Length);
+            var slice = System.Diagnostics.Stopwatch.StartNew();
+            var count = 0;
+            foreach (var car in cars)
+            {
+                if (car != null && ShouldReturnTrainCar(car)) result.Add((car.ID, From(car)));
+                if (++count >= 16 || slice.Elapsed.TotalMilliseconds >= 0.5d)
+                { yield return null; count = 0; slice.Restart(); }
+            }
+            completion.TrySetResult(result);
+        }
+
+        private static async Task<Dictionary<string, CarData>> GetAllCarDataWorkerAsync()
+        {
+            var captured = await UnityCapture.Run<List<(string id, CarData data)>>(completion =>
+                CaptureCars(TrainCarRegistry.Instance.logicCarToTrainCar.Values, completion)).ConfigureAwait(false);
+            return await Task.Run(() => captured.ToDictionary(value => value.id, value => value.data)).ConfigureAwait(false);
+        }
+
+        public static Task<Dictionary<string, JObject>> GetTrainsetDataAsync(int id)
+        {
+            lock (captureGate)
+            {
+                if (trainsetCaptures.TryGetValue(id, out var pending)) return pending;
+                var capture = CaptureTrainset(id);
+                trainsetCaptures.Add(id, capture);
+                _ = capture.ContinueWith(_ => { lock (captureGate) {
+                    if (trainsetCaptures.TryGetValue(id, out var owner) && ReferenceEquals(owner, capture)) trainsetCaptures.Remove(id);
+                } }, TaskScheduler.Default);
+                return capture;
+            }
+        }
+
+        private static async Task<Dictionary<string, JObject>> CaptureTrainset(int id)
+        {
+            var captured = await UnityCapture.Run<List<(string id, CarData data)>>(completion =>
             {
                 var trainset = Trainset.allSets.Find(set => set.id == id);
-                if (trainset == null)
-                    return new Dictionary<string, CarData>();
-                return trainset.cars
-                    .Where(ShouldReturnTrainCar)
-                    .ToDictionary(car => car.ID, car => From(car));
+                return CaptureCars(trainset == null ? Enumerable.Empty<TrainCar>() : trainset.cars, completion);
             }).ConfigureAwait(false);
-            return cars.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.ToJson());
+            return await Task.Run(() => captured.ToDictionary(value => value.id, value => value.data.ToJson())).ConfigureAwait(false);
         }
 
         public static async Task<JObject> GetTrainsetDataJsonAsync(int id)

@@ -8,8 +8,17 @@ namespace DvMod.RemoteDispatch
     {
         private const int MaximumPayloadBytes = 4096;
 
+        public static System.Threading.Tasks.Task<string> GetStateJsonAsync(string user, bool loopback)
+            => (System.Threading.Tasks.Task<string>)InvokeObject("GetStateJsonAsync", user, null, loopback);
+
+        public static System.Threading.Tasks.Task<string> GetManagementStateJsonAsync(string user, bool loopback)
+            => (System.Threading.Tasks.Task<string>)InvokeObject("GetManagementStateJsonAsync", user, null, loopback);
+
         public static string GetState(string authenticatedUser, bool isLoopbackRequest)
             => Invoke("GetState", authenticatedUser, null, isLoopbackRequest);
+
+        public static object GetStateSnapshot(string authenticatedUser, bool isLoopbackRequest)
+            => InvokeObject("GetStateSnapshot", authenticatedUser, null, isLoopbackRequest);
 
         public static string SubmitIntent(string authenticatedUser, string payload, bool isLoopbackRequest)
         {
@@ -22,6 +31,9 @@ namespace DvMod.RemoteDispatch
 
         public static string GetManagementState(string authenticatedUser, bool isLoopbackRequest)
             => Invoke("GetManagementState", authenticatedUser, null, isLoopbackRequest);
+
+        public static object GetManagementStateSnapshot(string authenticatedUser, bool isLoopbackRequest)
+            => InvokeObject("GetManagementStateSnapshot", authenticatedUser, null, isLoopbackRequest);
 
         public static string SubmitManagementIntent(string authenticatedUser, string payload, bool isLoopbackRequest)
         {
@@ -39,6 +51,16 @@ namespace DvMod.RemoteDispatch
             var parameterTypes = payload == null ? new[] { typeof(string), typeof(bool) } : new[] { typeof(string), typeof(string), typeof(bool) };
             var method = type.GetMethod(methodName, BindingFlags.Public | BindingFlags.Static, null, parameterTypes, null) ?? throw new MissingMethodException(type.FullName, methodName);
             try { return (string)(method.Invoke(null, payload == null ? new object[] { authenticatedUser, isLoopbackRequest } : new object[] { authenticatedUser, payload, isLoopbackRequest }) ?? "{}"); }
+            catch (TargetInvocationException exception) when (exception.InnerException != null) { throw exception.InnerException; }
+        }
+
+        private static object InvokeObject(string methodName, string authenticatedUser, string? payload, bool isLoopbackRequest)
+        {
+            if (string.IsNullOrWhiteSpace(authenticatedUser) || authenticatedUser.Length > 96) throw new UnauthorizedAccessException("Authenticated RemoteDispatch identity required.");
+            var type = UnityModManager.FindMod("BDVM.Full")?.Assembly?.GetType("BDVM.RemoteDispatchBridge") ?? throw new InvalidOperationException("BDVM bridge is unavailable.");
+            var parameterTypes = payload == null ? new[] { typeof(string), typeof(bool) } : new[] { typeof(string), typeof(string), typeof(bool) };
+            var method = type.GetMethod(methodName, BindingFlags.Public | BindingFlags.Static, null, parameterTypes, null) ?? throw new MissingMethodException(type.FullName, methodName);
+            try { return method.Invoke(null, payload == null ? new object[] { authenticatedUser, isLoopbackRequest } : new object[] { authenticatedUser, payload, isLoopbackRequest }) ?? new object(); }
             catch (TargetInvocationException exception) when (exception.InnerException != null) { throw exception.InnerException; }
         }
     }

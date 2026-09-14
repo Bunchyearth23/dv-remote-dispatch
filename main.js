@@ -100,6 +100,7 @@ function getCarColorMode() {
 document.getElementById('carColorDropdown')
   .addEventListener('input', () => {
     updateAllCarColors();
+    carMarkers.forEach((_, id) => updateCarMarker(id));
     updateJobListColors();
   });
 
@@ -132,10 +133,12 @@ function updateCarRow(carId) {
     return;
   const jobId = carJobIds.has(carId) ? carJobIds.get(carId) : '';
   const destinationYardId = allJobData.has(jobId) ? allJobData.get(jobId).destinationYardId : '';
-  const signature = `${carId}|${jobId}|${destinationYardId}`;
+  const display = globalThis.BdvmIndustrialDisplay?.describe(allCarData.get(carId));
+  const signature = `${carId}|${jobId}|${destinationYardId}|${display?.detail || ''}`;
   if (row.dataset.signature === signature) return;
   row.dataset.signature = signature;
-  row.innerHTML = `<td>${carId}</td><td>${jobId}</td><td>${destinationYardId}</td>`;
+  const esc = globalThis.BdvmIndustrialDisplay?.escape || (value => String(value ?? ''));
+  row.innerHTML = `<td>${esc(carId)}</td><td>${esc(jobId)}</td><td>${esc(display?.destination || destinationYardId)}</td><td>${esc(display?.detail || 'Cargo unknown')}</td>`;
   tablesort.refresh();
 }
 
@@ -192,6 +195,7 @@ function colorForJobType(jobId) {
 function colorForJobId(jobId) {
   switch (getCarColorMode()) {
     case 'jobId': return colorByHashing(jobId);
+    case 'industrial':
     case 'carType':
     case 'jobType': return colorForJobType(jobId);
     case 'destination': return colorForJobDestination(jobId);
@@ -669,7 +673,8 @@ fetch(new URL('/player', location))
 .then(resp => resp.json())
 .then(data => {
   updatePlayerOverlays(data);
-  zoomToAllPlayers();
+  // A dossier deep link owns the initial view, even if player HTTP arrives later.
+  if (!new URLSearchParams(location.search).get('dossier')) zoomToAllPlayers();
 });
 
 /////////////////////
@@ -889,6 +894,8 @@ function getCarColor(carId) {
     return jobId ? colorForJobDestination(jobId) : 'gray';
   case 'carType':
     return colorByHashing(carId.slice(0,3));
+  case 'industrial':
+    return globalThis.BdvmIndustrialDisplay?.describe(allCarData.get(carId)).color || 'gray';
   }
 }
 
@@ -921,6 +928,10 @@ function createCarLabel(carId, carData) {
   const rotation = carData.rotation >= 180 ? 'rotate(180)' : '';
   if (isLoco)
     return `<text transform="translate(-3 0) ${rotation}" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="bold">${carId}</text>`;
+  if (getCarColorMode() === 'industrial' && globalThis.BdvmIndustrialDisplay) {
+    const display = BdvmIndustrialDisplay.describe(carData), esc = BdvmIndustrialDisplay.escape;
+    return `<title>${esc(carId + ' · ' + display.detail)}</title><text transform="${rotation}" text-anchor="middle" dominant-baseline="central" font-size="7" font-weight="bold"><tspan x="0" dy="-3">${esc(carId)}</tspan><tspan x="0" dy="8">${esc(display.short + (display.destination ? ' → ' + display.destination : ''))}</tspan></text>`;
+  }
   const jobIdLabel =
     !jobId ? ""
     : jobId.split('-').length == 3 ? jobId.slice(-5,-3) + jobId.slice(-2)
@@ -954,7 +965,7 @@ function updateCarMarker(carId) {
     marker.setBounds(getCarOverlayBounds({ ...pose, length: carData.length }));
     refreshOverlayVisibility(marker, carId.startsWith('L-') ? 0 : 16);
   });
-  const signature = `${carData.length}|${carData.rotation >= 180}|${carJobIds.get(carId)}|${getCarColor(carId)}`;
+  const signature = `${carData.length}|${carData.rotation >= 180}|${carJobIds.get(carId)}|${getCarColor(carId)}|${getCarColorMode()}|${globalThis.BdvmIndustrialDisplay?.describe(carData).detail || ''}`;
   if (marker.appearance !== signature) {
     marker.appearance = signature;
     marker.getElement().innerHTML = createCarShape(carId, carData) + createCarLabel(carId, carData);
@@ -1013,7 +1024,23 @@ function updateAllCars(updateCarData) {
     if (!updateCarData[carId])
       removeCar(carId);
   updateLocoList();
+  focusIndustrialDossier();
 }
+
+let focusedIndustrialDossier = false;
+function focusIndustrialDossier() {
+  if (focusedIndustrialDossier || !globalThis.BdvmIndustrialDisplay) return;
+  const id = new URLSearchParams(location.search).get('dossier');
+  if (!id) return;
+  const ids = [...allCarData].filter(([, car]) => BdvmIndustrialDisplay.describe(car).dossierId === id).map(([carId]) => carId);
+  if (!ids.length) return;
+  const bounds = L.latLngBounds(ids.map(carId => allCarData.get(carId).position));
+  map.fitBounds(bounds, {maxZoom:19}); focusedIndustrialDossier = true;
+}
+window.addEventListener('bdvm:industrial-display', () => {
+  carMarkers.forEach((_, id) => { updateCarMarker(id); updateCarRow(id); });
+  focusIndustrialDossier();
+});
 
 function updateCars(cars) {
   Object.entries(cars).forEach(([carId, carData]) =>

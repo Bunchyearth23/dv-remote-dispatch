@@ -4,6 +4,8 @@ using Newtonsoft.Json.Linq;
 
 static class Program
 {
+    static readonly int Owner = Environment.CurrentManagedThreadId;
+    public static void OnMain() { Check(Environment.CurrentManagedThreadId == Owner, "Unity getter ran on worker"); }
     static void Check(bool ok, string message) { if (!ok) throw new Exception(message); }
     static void Main()
     {
@@ -27,6 +29,19 @@ static class Program
         Check(JobData.JobIdForCar(car.train)==job.ID,"Late wagon assignment not reflected");
         data=JobData.GetAllJobData();
         Check(data[job.ID]["carsAssigned"]!.Value<bool>() && data[job.ID]["length"]!.Value<float>()==15,"Assigned consist missing");
+        var asyncData = JobData.GetAllJobDataAsync();
+        Check(ReferenceEquals(asyncData, JobData.GetAllJobDataAsync()), "Concurrent job readers must share capture");
+        Updater.Pump();
+        job.chainData.chainDestinationYardId = "FF";
+        JobData.JobPatches.CarPlatePatch.Postfix(car.train, job.ID);
+        Check(ReferenceEquals(asyncData, JobData.GetAllJobDataAsync()), "Invalidation must retain one in-flight capture owner");
+        var timeout = System.Diagnostics.Stopwatch.StartNew();
+        while (!asyncData.IsCompleted && timeout.ElapsedMilliseconds < 3000) { Updater.Pump(); Thread.Yield(); }
+        Check(asyncData.IsCompleted, "Async jobs must complete");
+        var ownedJobs = asyncData.GetAwaiter().GetResult();
+        Check(ownedJobs[job.ID]["destinationYardId"]!.ToString() == "FF", "Invalidation must discard an obsolete captured result");
+        load.Data.cars.Clear();
+        Check(ownedJobs[job.ID]["tasks"]![0]!["cars"]!.Count() == 1, "Async job output must own its nested car data");
         JobData.JobPatches.CarPlatePatch.Postfix(car.train,"");
         Check(JobData.JobIdForCar(car.train)==null,"Completed job still assigned to wagon");
         JobData.Reset();
@@ -65,7 +80,7 @@ namespace DV.Logic.Job
     public class CarType {public ParentType parentType=new();}
     public class Car {public string ID="";public TrainCar train=new();public float length,capacity;public CarType carType=new();}
     public class TaskData {public TaskType type;public List<Task> nestedTasks=null!;public Track startTrack=null!,destinationTrack=null!;public List<Car> cars=new();public List<DV.ThingTypes.CargoType> cargoTypePerCar=null!;public WarehouseTaskType warehouseTaskType;}
-    public class Task {public TaskData Data=new();public TaskData GetTaskData()=>Data;}
+    public class Task {public TaskData Data=new();public TaskData GetTaskData(){Program.OnMain();return Data;}}
     public class WarehouseMachine {public Track WarehouseTrack=new();}
     public class WarehouseTask:Task {public WarehouseMachine warehouseMachine=new();}
     public class ChainData {public string chainOriginYardId="HB",chainDestinationYardId="SM";}
@@ -76,4 +91,36 @@ namespace UnityModManagerNet
 {
     public static class UnityModManager {public static Entry FindMod(string id)=>new();public class Entry {public bool Active=true;public System.Reflection.Assembly Assembly=>typeof(Program).Assembly;} }
 }
-namespace DvMod.RemoteDispatch {public static class Main {public static void DebugLog(Func<string> text){} } public static class Sessions {public static void AddTag(string tag){} } }
+namespace DvMod.RemoteDispatch
+{
+    public static class Updater
+    {
+        public static System.Threading.CancellationToken Lifetime => System.Threading.CancellationToken.None;
+        private static readonly System.Collections.Concurrent.ConcurrentQueue<System.Action> queue = new();
+        private static readonly List<System.Collections.IEnumerator> routines = new();
+        public static System.Threading.Tasks.Task<T> RunOnMainThread<T>(System.Func<T> action)
+        {
+            var result = new System.Threading.Tasks.TaskCompletionSource<T>(System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
+            queue.Enqueue(() => { try { result.SetResult(action()); } catch (Exception error) { result.SetException(error); } });
+            return result.Task;
+        }
+
+        public static System.Threading.Tasks.Task RunOnMainThread(System.Action action)
+        {
+            return RunOnMainThread(() => { action(); return true; });
+        }
+
+        public static void RunCoroutine(System.Collections.IEnumerator routine)
+        {
+            Program.OnMain(); routines.Add(routine);
+        }
+        public static void Pump()
+        {
+            while (queue.TryDequeue(out var action)) action();
+            foreach (var routine in routines.ToArray()) if (!routine.MoveNext()) routines.Remove(routine);
+        }
+    }
+
+    public static class Main { public static void DebugLog(Func<string> text){} }
+    public static class Sessions { public static void AddTag(string tag){} }
+}

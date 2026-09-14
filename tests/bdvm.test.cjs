@@ -43,10 +43,12 @@ test('legacy Dispatch remains an internal operational surface without Management
   assert.match(bootstrap, /path==='\/dispatch'/);
   assert.match(bootstrap, /frame\.src='\/legacy-dispatch'/);
   const industry = fs.readFileSync(require('node:path').join(root, 'industrial-dispatch.js'), 'utf8');
-  assert.match(html, /industryDispatchTab/); assert.match(html, /empty or already loaded wagons tagged for the origin industry and cargo/);
-  assert.match(industry, /operation:'start-manual'/); assert.match(industry, /originFacilityId/); assert.match(industry, /sourceFacilityId===origin\.value/); assert.match(industry, /tag\.cargoId===cargo\.value/); assert.match(industry, /industrial\?\.routes/); assert.match(industry, /pilotCompanyWagons/); assert.match(industry, /carGuid/); assert.match(industry, /a\[href="#industryDispatchTab"\].*refresh\(true\)/); assert.doesNotMatch(industry, /industryDispatchLifetime/); assert.doesNotMatch(industry, /setInterval\(/); assert.doesNotMatch(industry, /bdvm:dispatch-update/);
-  assert.match(industry, /companyToggle\.disabled=!company/); assert.match(industry, /if\(!company\)companyToggle\.checked=false/);
-  assert.doesNotMatch(industry, /!tag\.loaded/); assert.match(industry, /loadedCargoAmount/);
+  assert.match(html, /industryDispatchTab/); assert.match(html, /Manage dossiers in Management/);
+  assert.doesNotMatch(html, /industryDispatchCreate|industryDispatchQuantity/);
+  assert.doesNotMatch(industry, /operation:'start-manual'/); assert.match(industry, /BdvmIndustrialDisplay/);
+  assert.match(industry, /carGuid/); assert.match(industry, /DOMContentLoaded/);
+  assert.doesNotMatch(industry, /setInterval\(/); assert.doesNotMatch(industry, /bdvm:dispatch-update/);
+  assert.match(industry, /describe\(car/); assert.match(industry, /loadedAmount/);
   assert.doesNotMatch(html, /id="industryDispatchLifetime"/);
   assert.doesNotMatch(industry, /\.(?:AssetId|DisplayName|LastKnownLocation|OriginFacilityId|DestinationFacilityId|CargoId|DeliveredQuantity|Quantity|QuotedUnitValue|Version)\b/);
 });

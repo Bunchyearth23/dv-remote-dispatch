@@ -26,6 +26,11 @@ static class Program
         Check(HttpListenerLifecycle.IsExpectedShutdown(false), "Disposed listener shutdown was not recognized");
         Check(!HttpListenerLifecycle.IsExpectedShutdown(true), "A live listener was mistaken for shutdown");
         Check(!HttpListenerLifecycle.CaptureUnityContextForAccept, "HTTP accepts must not depend on the Unity focus loop");
+        Exception? startupFailure = null;
+        var refused = new System.Net.Sockets.SocketException(10013);
+        Check(!HttpListenerLifecycle.TryStart(() => throw refused, failure => startupFailure = failure), "A reserved port reported successful startup");
+        Check(ReferenceEquals(startupFailure, refused), "Socket access refusal was lost instead of surfaced to the mod UI/log");
+        Check(HttpListenerLifecycle.TryStart(() => { }, failure => throw failure), "An available listener failed startup");
 
         var set = new AsyncSet<string>();
         using var cancellation = new CancellationTokenSource();

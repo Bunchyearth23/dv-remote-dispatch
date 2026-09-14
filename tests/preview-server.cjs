@@ -41,7 +41,7 @@ http.createServer((req, res) => {
   const baseline = url.pathname.startsWith('/baseline/');
   const assetPath = baseline ? url.pathname.slice('/baseline'.length) : url.pathname;
   const file = assetPath==='/'?'index.html':assetPath.startsWith('/res/')?assetPath.slice(5):'';
-  if(!['index.html','main.js','motion.js','ai-traffic.js','route-planner.js','multiplayer.js','signal-canvas.js','style.css','leaflet.rotatedImageOverlay.js','icon.svg'].includes(file)) {res.writeHead(404);res.end();return;}
+  if(!['index.html','main.js','motion.js','ai-traffic.js','route-planner.js','multiplayer.js','signal-canvas.js','industrial-dispatch.js','style.css','leaflet.rotatedImageOverlay.js','icon.svg'].includes(file)) {res.writeHead(404);res.end();return;}
   res.setHeader('Content-Type',file.endsWith('.js')?'text/javascript':file.endsWith('.css')?'text/css':file.endsWith('.svg')?'image/svg+xml':'text/html');
   let content = fs.readFileSync(path.join(baseline ? 'D:/tmp/dv-dispatch-baseline' : root,file));
   if(file==='index.html') {
@@ -49,4 +49,4 @@ http.createServer((req, res) => {
     if(baseline) content=content.replaceAll('src="res/', 'src="/baseline/res/').replaceAll('href="res/', 'href="/baseline/res/');
   }
   res.end(content);
-}).listen(7246,'127.0.0.1',()=>console.log('Synthetic preview: http://127.0.0.1:7246'));
+}).listen(Number(process.env.DISPATCH_PREVIEW_PORT||18246),'127.0.0.1',()=>console.log('Synthetic preview ready on the configured loopback port'));

@@ -41,10 +41,20 @@ namespace DvMod.RemoteDispatch
                 return new HashSet<string>(allSessions.Values.Select(s => s.username));
         }
 
+        public static bool HasActiveSessions()
+        {
+            lock (allSesssionsLock)
+            {
+                RemoveExpiredSessionsLocked();
+                return allSessions.Count > 0;
+            }
+        }
+
         public static void AddTag(string tag)
         {
             lock (allSesssionsLock)
             {
+                if (allSessions.Count == 0) return;
                 RemoveExpiredSessionsLocked();
                 foreach (var session in allSessions.Values) session.pendingTags.Add(tag);
             }

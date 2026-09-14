@@ -42,10 +42,22 @@ namespace DvMod.RemoteDispatch
     {
         public sealed class Row { public JObject ToJson() => new JObject(); }
         public static JObject? GetCarGuidDataJson(string id) => new JObject();
+        public static Task<JObject?> GetCarGuidDataJsonAsync(string id) => Task.FromResult<JObject?>(new JObject());
         public static object GetTrainsetData(int id) => new JObject();
+        public static Task<JObject> GetTrainsetDataJsonAsync(int id) => Task.FromResult(new JObject());
         public static Dictionary<string, Row> GetAllCarData() => new Dictionary<string, Row>();
+        public static Task<JObject> GetAllCarDataJsonAsync() => Task.FromResult(new JObject());
     }
-    static class JobData { public static object GetAllJobData() => new JObject(); }
+    static class JobData
+    {
+        public static object GetAllJobData() => new JObject();
+        public static Task<Dictionary<string, JObject>> GetAllJobDataAsync()
+            => Task.FromResult(new Dictionary<string, JObject>());
+    }
     static class Junctions { public static object[] GetAllJunctionStates() => Array.Empty<object>(); }
-    static class PlayerData { public static JToken GetPlayerData() => new JObject(); }
+    static class PlayerData
+    {
+        public static JToken GetPlayerData() => new JObject();
+        public static Task<JObject> GetPlayerDataAsync() => Task.FromResult(new JObject());
+    }
 }
